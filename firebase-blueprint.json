@@ -1,0 +1,76 @@
+{
+  "entities": {
+    "Item": {
+      "title": "Inventory Item",
+      "description": "A product or asset in the inventory.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "price": { "type": "number" },
+        "type": { "type": "string" },
+        "sku": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "sku", "price", "type"]
+    },
+    "Location": {
+      "title": "Storage Location",
+      "description": "A physical area where items are stored.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "qrCode": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name"]
+    },
+    "Stock": {
+      "title": "Stock Level",
+      "description": "The quantity of a specific item at a specific location.",
+      "type": "object",
+      "properties": {
+        "itemId": { "type": "string" },
+        "locationId": { "type": "string" },
+        "quantity": { "type": "number" },
+        "lastUpdated": { "type": "string", "format": "date-time" }
+      },
+      "required": ["itemId", "locationId", "quantity"]
+    },
+    "Transaction": {
+      "title": "Inventory Transaction",
+      "description": "A record of items being checked in or out.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "itemId": { "type": "string" },
+        "locationId": { "type": "string" },
+        "employeeId": { "type": "string" },
+        "type": { "type": "string", "enum": ["IN", "OUT"] },
+        "quantity": { "type": "number" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["itemId", "locationId", "employeeId", "type", "quantity", "timestamp"]
+    },
+    "Employee": {
+      "title": "Employee",
+      "description": "A staff member authorized to check out items.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "pin": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "staff"] }
+      },
+      "required": ["name", "pin", "role"]
+    }
+  },
+  "firestore": {
+    "/items/{itemId}": { "schema": "Item", "description": "Global product catalog" },
+    "/locations/{locationId}": { "schema": "Location", "description": "Physical storage areas" },
+    "/stock/{stockId}": { "schema": "Stock", "description": "Current stock levels (composite key: itemId_locationId)" },
+    "/transactions/{transactionId}": { "schema": "Transaction", "description": "Audit log of all stock movements" },
+    "/employees/{employeeId}": { "schema": "Employee", "description": "Staff directory with PINs" }
+  }
+}

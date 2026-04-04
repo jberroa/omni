@@ -1,0 +1,7 @@
+{
+  "name": "OmniStock Inventory",
+  "description": "A comprehensive inventory management system with bulk Excel uploads, QR-coded locations, PIN-based checkouts, and advanced analytics.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
