@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { db, collection, onSnapshot, query, addDoc, serverTimestamp, deleteDoc, doc, updateDoc } from '../lib/firebase';
 import { Location } from '../types/inventory';
-import { MapPin, Plus, FileSpreadsheet, QrCode, Download, Search, Trash2, Edit2, X } from 'lucide-react';
+import { MapPin, Plus, FileSpreadsheet, QrCode, Download, Search, Trash2, Edit2, X, Loader2 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import * as XLSX from 'xlsx';
 import { ConfirmModal } from '../components/ConfirmModal';
+import { buildAllLocationQrZip, downloadZipBlob, zipDownloadFilename } from '../lib/qrExport';
 
 export function LocationDashboard() {
   const [locations, setLocations] = useState<Location[]>([]);
@@ -19,6 +20,7 @@ export function LocationDashboard() {
   const [editingLocation, setEditingLocation] = useState<Location | null>(null);
   const [editName, setEditName] = useState('');
   const [editNumber, setEditNumber] = useState('');
+  const [isZipping, setIsZipping] = useState(false);
 
   useEffect(() => {
     const q = query(collection(db, 'locations'));
@@ -186,6 +188,20 @@ export function LocationDashboard() {
     img.src = `data:image/svg+xml;base64,${btoa(svgData)}`;
   };
 
+  const handleDownloadAllQr = async () => {
+    if (locations.length === 0 || isZipping) return;
+    setIsZipping(true);
+    try {
+      const blob = await buildAllLocationQrZip(locations);
+      downloadZipBlob(blob, zipDownloadFilename());
+    } catch (error) {
+      console.error('Error building QR zip:', error);
+      alert('Could not prepare the ZIP file. Please try again.');
+    } finally {
+      setIsZipping(false);
+    }
+  };
+
   const filteredLocations = locations.filter(loc => 
     loc.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -198,7 +214,23 @@ export function LocationDashboard() {
           <p className="text-stone-500 dark:text-stone-400 mt-2">Manage physical areas and generate QR codes for quick access.</p>
         </div>
         
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={handleDownloadAllQr}
+            disabled={locations.length === 0 || isZipping}
+            aria-busy={isZipping}
+            aria-disabled={locations.length === 0 || isZipping}
+            title={locations.length === 0 ? 'No locations to export' : undefined}
+            className="flex items-center gap-2 bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 px-6 py-3 rounded-2xl text-sm font-semibold text-stone-700 dark:text-stone-200 hover:bg-stone-50 dark:hover:bg-stone-800 transition-all shadow-sm disabled:opacity-50 disabled:pointer-events-none"
+          >
+            {isZipping ? (
+              <Loader2 className="w-4 h-4 animate-spin" aria-hidden />
+            ) : (
+              <Download className="w-4 h-4" aria-hidden />
+            )}
+            {isZipping ? 'Preparing…' : 'Download All QR Codes'}
+          </button>
           <label className="cursor-pointer flex items-center gap-2 bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 px-6 py-3 rounded-2xl text-sm font-semibold text-stone-700 dark:text-stone-200 hover:bg-stone-50 dark:hover:bg-stone-800 transition-all shadow-sm">
             <FileSpreadsheet className="w-4 h-4 text-green-600" />
             {isUploading ? 'Uploading...' : 'Bulk Import Excel'}
