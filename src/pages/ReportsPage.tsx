@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { db, collection, onSnapshot, query, orderBy, handleFirestoreError, OperationType } from '../lib/firebase';
+import { api } from '../lib/api';
 import { Transaction, Item, Employee, Location, Stock } from '../types/inventory';
 import { startOfDay, format, subDays, eachDayOfInterval } from 'date-fns';
 import * as XLSX from 'xlsx';
@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 
 import { useTheme } from '../contexts/ThemeContext';
+import { toEventDate } from '../lib/dates';
 
 export function ReportsPage() {
   const { theme } = useTheme();
@@ -34,32 +35,32 @@ export function ReportsPage() {
   const [overviewEndDate, setOverviewEndDate] = useState('');
 
   useEffect(() => {
-    const unsubItems = onSnapshot(query(collection(db, 'items')), (snapshot) => {
-      setItems(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Item)));
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'items'));
-
-    const unsubEmployees = onSnapshot(query(collection(db, 'employees')), (snapshot) => {
-      setEmployees(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Employee)));
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'employees'));
-
-    const unsubLocations = onSnapshot(query(collection(db, 'locations')), (snapshot) => {
-      setLocations(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Location)));
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'locations'));
-
-    const unsubAllTransactions = onSnapshot(query(collection(db, 'transactions'), orderBy('timestamp', 'desc')), (snapshot) => {
-      setAllTransactions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Transaction)));
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'transactions'));
-
-    const unsubStocks = onSnapshot(query(collection(db, 'stock')), (snapshot) => {
-      setStocks(snapshot.docs.map(doc => doc.data() as Stock));
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'stock'));
-
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const [i, e, l, tx, s] = await Promise.all([
+          api.getItems(),
+          api.getEmployees(),
+          api.getLocations(),
+          api.getTransactions({ limit: 8000 }),
+          api.getStock(),
+        ]);
+        if (!cancelled) {
+          setItems(i);
+          setEmployees(e);
+          setLocations(l);
+          setAllTransactions(tx);
+          setStocks(s);
+        }
+      } catch (err) {
+        if (!cancelled) console.error(err);
+      }
+    };
+    load();
+    const t = setInterval(load, 4000);
     return () => {
-      unsubItems();
-      unsubEmployees();
-      unsubLocations();
-      unsubAllTransactions();
-      unsubStocks();
+      cancelled = true;
+      clearInterval(t);
     };
   }, []);
 
@@ -68,7 +69,7 @@ export function ReportsPage() {
     const location = locations.find(l => l.id === tx.locationId);
     const employee = employees.find(e => e.id === tx.employeeId);
     const searchLower = historySearchTerm.toLowerCase();
-    const date = tx.timestamp?.toDate ? tx.timestamp.toDate() : new Date();
+    const date = toEventDate(tx.timestamp);
     
     const matchesSearch = (
       item?.name.toLowerCase().includes(searchLower) ||
@@ -100,7 +101,7 @@ export function ReportsPage() {
       const item = items.find(i => i.id === tx.itemId);
       const location = locations.find(l => l.id === tx.locationId);
       const employee = employees.find(e => e.id === tx.employeeId);
-      const date = tx.timestamp?.toDate ? tx.timestamp.toDate() : new Date();
+      const date = toEventDate(tx.timestamp);
 
       return {
         'Type': tx.type === 'IN' ? 'Restock (IN)' : 'Check Out (OUT)',
@@ -175,7 +176,7 @@ export function ReportsPage() {
   const summaryData = React.useMemo(() => {
     const filteredTxs = allTransactions.filter(tx => {
       if (!overviewStartDate && !overviewEndDate) return true;
-      const date = tx.timestamp?.toDate ? tx.timestamp.toDate() : new Date();
+      const date = toEventDate(tx.timestamp);
       const txDate = startOfDay(date);
       if (overviewStartDate) {
         const start = startOfDay(new Date(overviewStartDate));
@@ -255,7 +256,7 @@ export function ReportsPage() {
     const dailyActivity = activityInterval.map(date => {
       const dayStr = format(date, 'MMM dd');
       const dayTxs = filteredTxs.filter(tx => {
-        const txDate = tx.timestamp?.toDate ? tx.timestamp.toDate() : new Date();
+        const txDate = toEventDate(tx.timestamp);
         return format(txDate, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd');
       });
 
@@ -493,7 +494,7 @@ export function ReportsPage() {
                     const item = items.find(i => i.id === tx.itemId);
                     const location = locations.find(l => l.id === tx.locationId);
                     const employee = employees.find(e => e.id === tx.employeeId);
-                    const date = tx.timestamp?.toDate ? tx.timestamp.toDate() : new Date();
+                    const date = toEventDate(tx.timestamp);
 
                     return (
                       <tr key={tx.id} className="hover:bg-stone-50/50 dark:hover:bg-stone-800/50 transition-colors">

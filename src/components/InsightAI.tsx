@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { db, collection, onSnapshot, query, orderBy, limit } from '../lib/firebase';
+import { api } from '../lib/api';
 import { Item, Stock, Transaction } from '../types/inventory';
 import { GoogleGenAI, Type } from "@google/genai";
 import { Sparkles, TrendingUp, AlertCircle, DollarSign, Zap, RefreshCw, BarChart3, Lightbulb, Download } from 'lucide-react';
@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import jsPDF from 'jspdf';
 import * as htmlToImage from 'html-to-image';
 import { useTheme } from '../contexts/ThemeContext';
+import { toEventDate } from '../lib/dates';
 
 interface AIInsight {
   type: 'warning' | 'opportunity' | 'trend' | 'tip';
@@ -32,23 +33,28 @@ export const InsightAI: React.FC = () => {
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
 
   useEffect(() => {
-    const unsubItems = onSnapshot(collection(db, 'items'), (snapshot) => {
-      setItems(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Item)));
-    });
-
-    const unsubStocks = onSnapshot(collection(db, 'stock'), (snapshot) => {
-      setStocks(snapshot.docs.map(doc => doc.data() as Stock));
-    });
-
-    const qTxs = query(collection(db, 'transactions'), orderBy('timestamp', 'desc'), limit(100));
-    const unsubTxs = onSnapshot(qTxs, (snapshot) => {
-      setTransactions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Transaction)));
-    });
-
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const [i, st, tx] = await Promise.all([
+          api.getItems(),
+          api.getStock(),
+          api.getTransactions({ limit: 100 }),
+        ]);
+        if (!cancelled) {
+          setItems(i);
+          setStocks(st);
+          setTransactions(tx);
+        }
+      } catch (e) {
+        if (!cancelled) console.error(e);
+      }
+    };
+    load();
+    const t = setInterval(load, 5000);
     return () => {
-      unsubItems();
-      unsubStocks();
-      unsubTxs();
+      cancelled = true;
+      clearInterval(t);
     };
   }, []);
 
@@ -77,7 +83,7 @@ export const InsightAI: React.FC = () => {
         itemName: items.find(i => i.id === t.itemId)?.name || 'Unknown',
         type: t.type,
         qty: t.quantity,
-        date: t.timestamp?.toDate?.()?.toLocaleDateString() || 'Recent'
+        date: toEventDate(t.timestamp).toLocaleDateString(),
       }));
 
       const prompt = `Analyze this hotel housekeeping inventory data and provide strategic insights.

@@ -1,52 +1,29 @@
-import React, { useState, useEffect } from 'react';
-import { auth, onAuthStateChanged, User, db, collection, query, where, getDocs, signInAnonymously } from './lib/firebase';
-import { Layout } from './components/Layout';
-import { AdminDashboard } from './pages/AdminDashboard';
-import { LocationDashboard } from './pages/LocationDashboard';
-import { CheckoutPage } from './pages/CheckoutPage';
-import { ReportsPage } from './pages/ReportsPage';
-import { InsightAI } from './components/InsightAI';
-import { LoginPage } from './pages/LoginPage';
-import { ErrorBoundary } from './components/ErrorBoundary';
-import { Employee } from './types/inventory';
+import React, { useState } from "react";
+import { Layout } from "./components/Layout";
+import { AdminDashboard } from "./pages/AdminDashboard";
+import { LocationDashboard } from "./pages/LocationDashboard";
+import { CheckoutPage } from "./pages/CheckoutPage";
+import { ReportsPage } from "./pages/ReportsPage";
+import { InsightAI } from "./components/InsightAI";
+import { LoginPage } from "./pages/LoginPage";
+import { ErrorBoundary } from "./components/ErrorBoundary";
+import { Employee } from "./types/inventory";
+import { api } from "./lib/api";
 
 export default function App() {
-  const [user, setUser] = useState<User | null>(null);
   const [employee, setEmployee] = useState<Employee | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [currentPage, setCurrentPage] = useState<'admin' | 'locations' | 'checkout' | 'reports' | 'insight'>('admin');
-
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      // Clear employee if the user logs out or logs in as a real admin
-      if (!u || !u.isAnonymous) {
-        setEmployee(null);
-      }
-      setLoading(false);
-    });
-    return unsubscribe;
-  }, []);
+  const [currentPage, setCurrentPage] = useState<
+    "admin" | "locations" | "checkout" | "reports" | "insight"
+  >("admin");
 
   const handleEmployeeLogin = async (pin: string) => {
     try {
-      // 1. Verify the PIN first (requires allow read: if true on employees collection)
-      const q = query(collection(db, 'employees'), where('pin', '==', pin));
-      const snapshot = await getDocs(q);
-      
-      if (!snapshot.empty) {
-        const empData = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as Employee;
-        
-        // Note: We are skipping signInAnonymously because it may be disabled in the Firebase console.
-        // The firestore.rules are configured to allow these specific employee actions without auth.
-        // If you want to use isAuthenticated() in rules, enable the "Anonymous" provider in Firebase Console.
-        
-        setEmployee(empData);
-        // If they are an admin, send them to the dashboard, otherwise to checkout
-        setCurrentPage(empData.role === 'admin' ? 'admin' : 'checkout');
+      const emp = await api.getEmployeeByPin(pin);
+      if (emp) {
+        setEmployee(emp);
+        setCurrentPage(emp.role === "admin" ? "admin" : "checkout");
         return true;
       }
-      
       return false;
     } catch (error) {
       console.error("Employee login error:", error);
@@ -54,31 +31,15 @@ export default function App() {
     }
   };
 
-  const handleLogout = async () => {
-    try {
-      await auth.signOut();
-    } catch (error) {
-      console.error("Logout error:", error);
-    }
+  const handleLogout = () => {
     setEmployee(null);
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-[#f5f5f4]">
-        <div className="animate-pulse text-xl font-medium text-stone-400">Loading OmniStock...</div>
-      </div>
-    );
-  }
-
-  // If not logged in at all
-  if (!user && !employee) {
+  if (!employee) {
     return <LoginPage onEmployeeLogin={handleEmployeeLogin} />;
   }
 
-  // If employee is logged in (either via state or anonymous auth)
-  // We prioritize the employee view if the user is anonymous
-  if (employee && employee.role === 'staff') {
+  if (employee.role === "staff") {
     return (
       <ErrorBoundary>
         <div className="min-h-screen bg-[#f5f5f4] dark:bg-stone-950 p-6 transition-colors">
@@ -90,12 +51,10 @@ export default function App() {
                 </div>
                 <div>
                   <h1 className="font-bold text-stone-900 dark:text-white">OmniStock</h1>
-                  <p className="text-xs text-stone-500">
-                    Staff: {employee.name}
-                  </p>
+                  <p className="text-xs text-stone-500">Staff: {employee.name}</p>
                 </div>
               </div>
-              <button 
+              <button
                 onClick={handleLogout}
                 className="text-sm font-semibold text-stone-500 hover:text-stone-900 dark:hover:text-white"
               >
@@ -111,18 +70,21 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <Layout 
-        user={user || undefined} 
-        employee={employee || undefined}
-        currentPage={currentPage} 
-        onPageChange={setCurrentPage} 
+      <Layout
+        employee={employee}
+        currentPage={currentPage}
+        onPageChange={setCurrentPage}
         onLogout={handleLogout}
       >
-        {currentPage === 'admin' && <AdminDashboard loggedInUser={user || undefined} loggedInEmployee={employee || undefined} />}
-        {currentPage === 'locations' && <LocationDashboard />}
-        {currentPage === 'checkout' && <CheckoutPage loggedInEmployee={employee || undefined} />}
-        {currentPage === 'reports' && <ReportsPage />}
-        {currentPage === 'insight' && <InsightAI />}
+        {currentPage === "admin" && (
+          <AdminDashboard loggedInEmployee={employee} />
+        )}
+        {currentPage === "locations" && <LocationDashboard />}
+        {currentPage === "checkout" && (
+          <CheckoutPage loggedInEmployee={employee} />
+        )}
+        {currentPage === "reports" && <ReportsPage />}
+        {currentPage === "insight" && <InsightAI />}
       </Layout>
     </ErrorBoundary>
   );

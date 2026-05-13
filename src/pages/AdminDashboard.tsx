@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { db, collection, onSnapshot, query, addDoc, serverTimestamp, deleteDoc, doc, where, orderBy, updateDoc, handleFirestoreError, OperationType } from '../lib/firebase';
+import { api, handleApiError, OperationType } from '../lib/api';
 import { Item, Employee, Transaction, Location, Stock } from '../types/inventory';
 import { Plus, Search, FileSpreadsheet, Package, Users, Trash2, Edit2, X, History, AlertTriangle, FileText, Clock, ArrowDownRight, ArrowUpRight, Sparkles, ShieldCheck } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -17,16 +17,14 @@ const HOUSEKEEPING_CATEGORIES = [
 ];
 import { ConfirmModal } from '../components/ConfirmModal';
 import { startOfDay } from 'date-fns';
-
-import { User } from '../lib/firebase';
+import { toEventDate } from '../lib/dates';
 
 interface AdminDashboardProps {
-  loggedInUser?: User;
   loggedInEmployee?: Employee;
 }
 
-export function AdminDashboard({ loggedInUser, loggedInEmployee }: AdminDashboardProps) {
-  const isSuperAdmin = !!loggedInUser;
+export function AdminDashboard({ loggedInEmployee }: AdminDashboardProps) {
+  const isSuperAdmin = loggedInEmployee?.role === 'admin';
   const [items, setItems] = useState<Item[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
@@ -60,31 +58,30 @@ export function AdminDashboard({ loggedInUser, loggedInEmployee }: AdminDashboar
   const [historyEndDate, setHistoryEndDate] = useState('');
 
   useEffect(() => {
-    const qItems = query(collection(db, 'items'));
-    const unsubItems = onSnapshot(qItems, (snapshot) => {
-      setItems(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Item)));
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'items'));
-
-    const qEmployees = query(collection(db, 'employees'));
-    const unsubEmployees = onSnapshot(qEmployees, (snapshot) => {
-      setEmployees(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Employee)));
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'employees'));
-
-    const qLocations = query(collection(db, 'locations'));
-    const unsubLocations = onSnapshot(qLocations, (snapshot) => {
-      setLocations(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Location)));
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'locations'));
-
-    const qStocks = query(collection(db, 'stock'));
-    const unsubStocks = onSnapshot(qStocks, (snapshot) => {
-      setStocks(snapshot.docs.map(doc => doc.data() as Stock));
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'stock'));
-
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const [i, e, l, s] = await Promise.all([
+          api.getItems(),
+          api.getEmployees(),
+          api.getLocations(),
+          api.getStock(),
+        ]);
+        if (!cancelled) {
+          setItems(i);
+          setEmployees(e);
+          setLocations(l);
+          setStocks(s);
+        }
+      } catch (err) {
+        if (!cancelled) console.error(err);
+      }
+    };
+    load();
+    const t = setInterval(load, 4000);
     return () => {
-      unsubItems();
-      unsubEmployees();
-      unsubLocations();
-      unsubStocks();
+      cancelled = true;
+      clearInterval(t);
     };
   }, []);
 
@@ -94,24 +91,29 @@ export function AdminDashboard({ loggedInUser, loggedInEmployee }: AdminDashboar
       return;
     }
 
+    let cancelled = false;
     setIsLoadingHistory(true);
-    const q = query(
-      collection(db, 'transactions'),
-      where('itemId', '==', selectedItemForHistory.id),
-      orderBy('timestamp', 'desc')
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const txs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Transaction));
-      setItemTransactions(txs);
-      setIsLoadingHistory(false);
-    }, (error) => {
-      console.error("Error fetching transactions:", error);
-      setIsLoadingHistory(false);
-      handleFirestoreError(error, OperationType.LIST, 'transactions');
-    });
-
-    return unsubscribe;
+    const loadTx = async () => {
+      try {
+        const txs = await api.getTransactions({
+          itemId: selectedItemForHistory.id,
+          limit: 2000,
+        });
+        if (!cancelled) {
+          setItemTransactions(txs);
+        }
+      } catch (error) {
+        console.error("Error fetching transactions:", error);
+      } finally {
+        if (!cancelled) setIsLoadingHistory(false);
+      }
+    };
+    loadTx();
+    const t = setInterval(loadTx, 4000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
   }, [selectedItemForHistory]);
 
   const handleAddItem = async (e: React.FormEvent) => {
@@ -120,25 +122,33 @@ export function AdminDashboard({ loggedInUser, loggedInEmployee }: AdminDashboar
 
     try {
       const itemData = {
-        ...newItem,
+        name: newItem.name.trim(),
+        sku: newItem.sku.trim(),
+        type: newItem.type.trim(),
         price: Number(newItem.price) || 0,
+        imageUrl: newItem.imageUrl || undefined,
         priceByBox: newItem.priceByBox ? Number(newItem.priceByBox) : undefined,
-        lowStockThreshold: newItem.lowStockThreshold ? Number(newItem.lowStockThreshold) : undefined,
-        createdAt: serverTimestamp()
+        lowStockThreshold: newItem.lowStockThreshold
+          ? Number(newItem.lowStockThreshold)
+          : undefined,
       };
 
       if (editingItemId) {
-        await updateDoc(doc(db, 'items', editingItemId), itemData);
+        await api.updateItem(editingItemId, itemData);
       } else {
-        await addDoc(collection(db, 'items'), itemData);
+        await api.createItem(itemData as { name: string; sku: string } & Partial<Item>);
       }
-      
+
       setNewItem({ name: '', price: '', type: '', sku: '', imageUrl: '', lowStockThreshold: '', priceByBox: '' });
       setIsAddingItem(false);
       setEditingItemId(null);
     } catch (error) {
       console.error("Error saving item:", error);
-      handleFirestoreError(error, editingItemId ? OperationType.UPDATE : OperationType.CREATE, 'items');
+      handleApiError(
+        error,
+        editingItemId ? OperationType.UPDATE : OperationType.CREATE,
+        "items"
+      );
     }
   };
 
@@ -146,7 +156,7 @@ export function AdminDashboard({ loggedInUser, loggedInEmployee }: AdminDashboar
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Limit size to 500KB to stay within Firestore 1MB limit
+    // Limit size to 500KB for reasonable DB payload
     if (file.size > 500 * 1024) {
       alert("Image is too large. Please select an image smaller than 500KB.");
       return;
@@ -191,7 +201,7 @@ export function AdminDashboard({ loggedInUser, loggedInEmployee }: AdminDashboar
   const confirmDeleteItem = async () => {
     if (!itemToDelete) return;
     try {
-      await deleteDoc(doc(db, 'items', itemToDelete));
+      await api.deleteItem(itemToDelete);
       setItemToDelete(null);
     } catch (error) {
       console.error("Error deleting item:", error);
@@ -201,7 +211,7 @@ export function AdminDashboard({ loggedInUser, loggedInEmployee }: AdminDashboar
   const confirmDeleteEmployee = async () => {
     if (!employeeToDelete) return;
     try {
-      await deleteDoc(doc(db, 'employees', employeeToDelete));
+      await api.deleteEmployee(employeeToDelete);
       setEmployeeToDelete(null);
     } catch (error) {
       console.error("Error deleting employee:", error);
@@ -227,10 +237,9 @@ export function AdminDashboard({ loggedInUser, loggedInEmployee }: AdminDashboar
           return;
         }
 
-        let createdCount = 0;
+        const imported: Array<{ name: string; sku: string; type: string; price: number }> = [];
         let skippedCount = 0;
         const skippedReasons: string[] = [];
-
         for (const row of jsonData) {
           // Normalize keys to lowercase and remove all non-alphanumeric characters to handle different header naming
           const normalizedRow: any = {};
@@ -285,14 +294,12 @@ export function AdminDashboard({ loggedInUser, loggedInEmployee }: AdminDashboar
                        'General';
 
           if (name && sku) {
-            await addDoc(collection(db, 'items'), {
+            imported.push({
               name: String(name).trim(),
               price: Number(price) || 0,
               type: String(type).trim(),
               sku: String(sku).trim(),
-              createdAt: serverTimestamp()
             });
-            createdCount++;
           } else {
             skippedCount++;
             if (!name && !sku) skippedReasons.push("Missing both Name and SKU");
@@ -300,7 +307,8 @@ export function AdminDashboard({ loggedInUser, loggedInEmployee }: AdminDashboar
             else if (!sku) skippedReasons.push(`Missing SKU (Name: ${name})`);
           }
         }
-        
+
+        const { created: createdCount } = await api.importItems(imported);
         if (createdCount > 0) {
           let message = `Successfully imported ${createdCount} items.`;
           if (skippedCount > 0) {
@@ -335,9 +343,9 @@ export function AdminDashboard({ loggedInUser, loggedInEmployee }: AdminDashboar
 
     try {
       if (editingEmployeeId) {
-        await updateDoc(doc(db, 'employees', editingEmployeeId), newEmployee);
+        await api.updateEmployee(editingEmployeeId, newEmployee);
       } else {
-        await addDoc(collection(db, 'employees'), newEmployee);
+        await api.createEmployee(newEmployee);
       }
       
       setNewEmployee({ 
@@ -351,7 +359,7 @@ export function AdminDashboard({ loggedInUser, loggedInEmployee }: AdminDashboar
       setEditingEmployeeId(null);
     } catch (err) {
       console.error("Error saving employee:", err);
-      handleFirestoreError(err, editingEmployeeId ? OperationType.UPDATE : OperationType.CREATE, 'employees');
+      handleApiError(err, editingEmployeeId ? OperationType.UPDATE : OperationType.CREATE, 'employees');
     }
   };
 
@@ -368,7 +376,7 @@ export function AdminDashboard({ loggedInUser, loggedInEmployee }: AdminDashboar
   );
 
   const filteredItemTransactions = itemTransactions.filter(tx => {
-    const date = tx.timestamp?.toDate ? tx.timestamp.toDate() : new Date();
+    const date = toEventDate(tx.timestamp);
     const matchesType = historyTypeFilter === 'ALL' || tx.type === historyTypeFilter;
     const matchesDate = (() => {
       if (!historyStartDate && !historyEndDate) return true;
@@ -751,6 +759,8 @@ export function AdminDashboard({ loggedInUser, loggedInEmployee }: AdminDashboar
                       setNewEmployee({ 
                         name: '', 
                         pin: '', 
+                        email: '',
+                        notificationsEnabled: false,
                         role: 'staff',
                         permissions: { canCheckIn: true, canCheckOut: true }
                       });
@@ -1050,7 +1060,7 @@ export function AdminDashboard({ loggedInUser, loggedInEmployee }: AdminDashboar
                   {filteredItemTransactions.map((tx) => {
                     const location = locations.find(l => l.id === tx.locationId);
                     const employee = employees.find(e => e.id === tx.employeeId);
-                    const date = tx.timestamp?.toDate ? tx.timestamp.toDate() : new Date();
+                    const date = toEventDate(tx.timestamp);
                     
                     return (
                       <div key={tx.id} className="flex items-center justify-between p-6 bg-stone-50 dark:bg-stone-800 rounded-[24px] border border-stone-100 dark:border-stone-700 group hover:bg-white dark:hover:bg-stone-700 hover:shadow-md transition-all">

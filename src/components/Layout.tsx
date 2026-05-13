@@ -1,36 +1,49 @@
-import React from 'react';
-import { User, auth } from '../lib/firebase';
-import { LayoutDashboard, MapPin, QrCode, BarChart3, LogOut, Package, Sun, Moon, Sparkles, User as UserIcon } from 'lucide-react';
-import { cn } from '../lib/utils';
-import { useTheme } from '../contexts/ThemeContext';
-import { Employee } from '../types/inventory';
+import React from "react";
+import {
+  Package,
+  MapPin,
+  QrCode,
+  BarChart3,
+  LogOut,
+  Sun,
+  Moon,
+  Sparkles,
+  User as UserIcon,
+} from "lucide-react";
+import { cn } from "../lib/utils";
+import { useTheme } from "../contexts/ThemeContext";
+import { Employee } from "../types/inventory";
 
 interface LayoutProps {
   children: React.ReactNode;
-  user?: User;
   employee?: Employee;
   currentPage: string;
-  onPageChange: (page: any) => void;
+  onPageChange: (page: "admin" | "locations" | "checkout" | "reports" | "insight") => void;
   onLogout: () => void;
 }
 
-export function Layout({ children, user, employee, currentPage, onPageChange, onLogout }: LayoutProps) {
+export function Layout({
+  children,
+  employee,
+  currentPage,
+  onPageChange,
+  onLogout,
+}: LayoutProps) {
   const { theme, toggleTheme } = useTheme();
   const navItems = [
-    { id: 'admin', label: 'Inventory', icon: Package },
-    { id: 'locations', label: 'Locations', icon: MapPin },
-    { id: 'checkout', label: 'Checkout', icon: QrCode },
-    { id: 'reports', label: 'Reports', icon: BarChart3 },
-    { id: 'insight', label: 'Insight AI', icon: Sparkles },
+    { id: "admin" as const, label: "Inventory", icon: Package },
+    { id: "locations" as const, label: "Locations", icon: MapPin },
+    { id: "checkout" as const, label: "Checkout", icon: QrCode },
+    { id: "reports" as const, label: "Reports", icon: BarChart3 },
+    { id: "insight" as const, label: "Insight AI", icon: Sparkles },
   ];
 
-  const displayName = user?.displayName || employee?.name || 'User';
-  const displayEmail = user?.email || (employee?.role === 'admin' ? 'Administrator' : 'Staff');
-  const photoURL = user?.photoURL;
+  const displayName = employee?.name || "User";
+  const displayEmail =
+    employee?.role === "admin" ? "Administrator" : "Staff";
 
   return (
     <div className="min-h-screen bg-[#f5f5f5] dark:bg-stone-950 flex flex-col md:flex-row transition-colors duration-300">
-      {/* Sidebar */}
       <aside className="w-full md:w-64 bg-white dark:bg-stone-900 border-r border-stone-200 dark:border-stone-800 flex flex-col transition-colors duration-300">
         <div className="p-6 border-b border-stone-200 dark:border-stone-800 flex items-center justify-between">
           <div>
@@ -38,14 +51,16 @@ export function Layout({ children, user, employee, currentPage, onPageChange, on
               <Package className="w-6 h-6 text-stone-900 dark:text-white" />
               OmniStock
             </h1>
-            <p className="text-xs text-stone-500 mt-1 uppercase tracking-widest font-semibold">Inventory Control</p>
+            <p className="text-xs text-stone-500 mt-1 uppercase tracking-widest font-semibold">
+              Inventory Control
+            </p>
           </div>
           <button
             onClick={toggleTheme}
             className="p-2 rounded-xl bg-stone-50 dark:bg-stone-800 text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-700 transition-all"
-            title={theme === 'light' ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
+            title={theme === "light" ? "Switch to Dark Mode" : "Switch to Light Mode"}
           >
-            {theme === 'light' ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
+            {theme === "light" ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
           </button>
         </div>
 
@@ -69,16 +84,16 @@ export function Layout({ children, user, employee, currentPage, onPageChange, on
 
         <div className="p-4 border-t border-stone-200 dark:border-stone-800">
           <div className="flex items-center gap-3 px-4 py-3 mb-2">
-            {photoURL ? (
-              <img src={photoURL} alt="" className="w-8 h-8 rounded-full border border-stone-200 dark:border-stone-700" referrerPolicy="no-referrer" />
-            ) : (
-              <div className="w-8 h-8 rounded-full bg-stone-100 dark:bg-stone-800 flex items-center justify-center border border-stone-200 dark:border-stone-700">
-                <UserIcon className="w-4 h-4 text-stone-400" />
-              </div>
-            )}
+            <div className="w-8 h-8 rounded-full bg-stone-100 dark:bg-stone-800 flex items-center justify-center border border-stone-200 dark:border-stone-700">
+              <UserIcon className="w-4 h-4 text-stone-400" />
+            </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-stone-900 dark:text-white truncate">{displayName}</p>
-              <p className="text-xs text-stone-500 dark:text-stone-400 truncate">{displayEmail}</p>
+              <p className="text-sm font-medium text-stone-900 dark:text-white truncate">
+                {displayName}
+              </p>
+              <p className="text-xs text-stone-500 dark:text-stone-400 truncate">
+                {displayEmail}
+              </p>
             </div>
           </div>
           <button
@@ -91,11 +106,8 @@ export function Layout({ children, user, employee, currentPage, onPageChange, on
         </div>
       </aside>
 
-      {/* Main Content */}
       <main className="flex-1 overflow-auto">
-        <div className="max-w-7xl mx-auto p-6 md:p-10">
-          {children}
-        </div>
+        <div className="max-w-7xl mx-auto p-6 md:p-10">{children}</div>
       </main>
     </div>
   );

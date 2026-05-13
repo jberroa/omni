@@ -29,7 +29,7 @@ function yieldToMainFrame(): Promise<void> {
 export type ZipProgress = (completed: number, total: number) => void;
 
 /**
- * PNG QR codes (payload = Firestore location id), matching checkout scans.
+ * PNG QR codes (payload = location id), matching checkout scans.
  * Error level H, width 200 — aligned with LocationDashboard single QR defaults.
  */
 export async function buildAllLocationQrZip(

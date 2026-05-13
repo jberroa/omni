@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { db, collection, onSnapshot, query, addDoc, serverTimestamp, deleteDoc, doc, updateDoc } from '../lib/firebase';
+import { api } from '../lib/api';
 import { Location } from '../types/inventory';
 import { MapPin, Plus, FileSpreadsheet, QrCode, Download, Search, Trash2, Edit2, X, Loader2 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
@@ -23,27 +23,33 @@ export function LocationDashboard() {
   const [isZipping, setIsZipping] = useState(false);
 
   useEffect(() => {
-    const q = query(collection(db, 'locations'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const locsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Location));
-      setLocations(locsData);
-    });
-    return unsubscribe;
-  }, []);
-
-  useEffect(() => {
-    const q = query(collection(db, 'stock'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const counts: Record<string, number> = {};
-      snapshot.docs.forEach(doc => {
-        const data = doc.data();
-        if (data.locationId && data.quantity > 0) {
-          counts[data.locationId] = (counts[data.locationId] || 0) + 1;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const [locs, stockRows] = await Promise.all([
+          api.getLocations(),
+          api.getStock(),
+        ]);
+        if (!cancelled) {
+          setLocations(locs);
+          const counts: Record<string, number> = {};
+          stockRows.forEach((row) => {
+            if (row.locationId && row.quantity > 0) {
+              counts[row.locationId] = (counts[row.locationId] || 0) + 1;
+            }
+          });
+          setStockCounts(counts);
         }
-      });
-      setStockCounts(counts);
-    });
-    return unsubscribe;
+      } catch (e) {
+        if (!cancelled) console.error(e);
+      }
+    };
+    load();
+    const t = setInterval(load, 4000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
   }, []);
 
   const handleAddLocation = async (e: React.FormEvent) => {
@@ -51,10 +57,10 @@ export function LocationDashboard() {
     if (!newLocationName.trim()) return;
 
     try {
-      await addDoc(collection(db, 'locations'), {
+      await api.createLocation({
         name: newLocationName.trim(),
-        locationNumber: newLocationNumber.trim() || Math.floor(1000 + Math.random() * 9000).toString(),
-        createdAt: serverTimestamp()
+        locationNumber:
+          newLocationNumber.trim() || String(Math.floor(1000 + Math.random() * 9000)),
       });
       setNewLocationName('');
       setNewLocationNumber('');
@@ -67,7 +73,7 @@ export function LocationDashboard() {
   const confirmDeleteLocation = async () => {
     if (!locationToDelete) return;
     try {
-      await deleteDoc(doc(db, 'locations', locationToDelete.id));
+      await api.deleteLocation(locationToDelete.id);
       if (selectedLocation?.id === locationToDelete.id) setSelectedLocation(null);
       setLocationToDelete(null);
     } catch (error) {
@@ -80,9 +86,9 @@ export function LocationDashboard() {
     if (!editingLocation || !editName.trim()) return;
 
     try {
-      await updateDoc(doc(db, 'locations', editingLocation.id), {
+      await api.updateLocation(editingLocation.id, {
         name: editName.trim(),
-        locationNumber: editNumber.trim()
+        locationNumber: editNumber.trim(),
       });
       setEditingLocation(null);
       setEditName('');
@@ -111,7 +117,7 @@ export function LocationDashboard() {
           return;
         }
 
-        let createdCount = 0;
+        const toImport: Array<{ name: string; locationNumber?: string }> = [];
         let skippedCount = 0;
 
         for (const row of jsonData) {
@@ -140,17 +146,19 @@ export function LocationDashboard() {
                          normalizedRow.locid;
 
           if (name) {
-            await addDoc(collection(db, 'locations'), {
+            toImport.push({
               name: String(name).trim(),
-              locationNumber: number?.toString().trim() || Math.floor(1000 + Math.random() * 9000).toString(),
-              createdAt: serverTimestamp()
+              locationNumber:
+                number != null && String(number).trim() !== ""
+                  ? String(number).trim()
+                  : String(Math.floor(1000 + Math.random() * 9000)),
             });
-            createdCount++;
           } else {
             skippedCount++;
           }
         }
-        
+
+        const { created: createdCount } = await api.importLocations(toImport);
         if (createdCount > 0) {
           alert(`Successfully imported ${createdCount} locations.${skippedCount > 0 ? ` Skipped ${skippedCount} rows due to missing name.` : ''}`);
         } else {

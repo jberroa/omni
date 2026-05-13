@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { db, collection, getDoc, doc, addDoc, serverTimestamp, updateDoc, increment, getDocs, query, where, setDoc, handleFirestoreError, OperationType } from '../lib/firebase';
 import { Location, Item, Employee, Stock } from '../types/inventory';
 import { QrCode, Scan, CheckCircle2, ArrowRightLeft, Package, MapPin, User, AlertCircle, Trash2 } from 'lucide-react';
 import { Scanner } from '@yudiel/react-qr-scanner';
-import { sendInventoryAlert } from '../services/notifyService';
+import { api } from '../lib/api';
 
 interface CheckoutPageProps {
   loggedInEmployee?: Employee | null;
@@ -51,11 +50,10 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
   useEffect(() => {
     const fetchItems = async () => {
       try {
-        const snapshot = await getDocs(collection(db, 'items'));
-        setItems(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Item)));
+        const list = await api.getItems();
+        setItems(list);
       } catch (err) {
         console.error("Error fetching items:", err);
-        handleFirestoreError(err, OperationType.GET, 'items');
       }
     };
     fetchItems();
@@ -63,10 +61,10 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
 
   useEffect(() => {
     if (selectedItem && scannedLocation) {
-      const q = query(collection(db, 'stock'), where('itemId', '==', selectedItem), where('locationId', '==', scannedLocation.id));
-      getDocs(q).then(snapshot => {
-        const sortedStocks = snapshot.docs
-          .map(d => d.data() as Stock)
+      api
+        .getStock({ itemId: selectedItem, locationId: scannedLocation.id })
+        .then((rows) => {
+        const sortedStocks = rows
           .filter(s => s.quantity > 0)
           .sort((a, b) => {
             if (!a.expiryDate) return 1;
@@ -76,7 +74,6 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
         setAvailableStocks(sortedStocks);
       }).catch(err => {
         console.error("Error fetching available stocks:", err);
-        handleFirestoreError(err, OperationType.LIST, 'stock');
       });
     } else {
       setAvailableStocks([]);
@@ -107,22 +104,16 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
     if (result && result[0] && result[0].rawValue) {
       const locId = result[0].rawValue;
       try {
-        const locDoc = await getDoc(doc(db, 'locations', locId));
-        if (locDoc.exists()) {
-          setScannedLocation({ id: locDoc.id, ...locDoc.data() } as Location);
-          // If employee is already logged in, skip PIN step
+        const loc = await api.getLocation(locId);
+          setScannedLocation(loc);
           if (employee) {
             setStep('action');
           } else {
             setStep('pin');
           }
-        } else {
-          setError('Invalid Location QR Code');
-        }
       } catch (err) {
         console.error("Error scanning QR code:", err);
-        setError('Error scanning QR code');
-        handleFirestoreError(err, OperationType.GET, `locations/${locId}`);
+        setError('Invalid Location QR Code');
       }
     }
   };
@@ -133,11 +124,7 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
     
     setError('');
     try {
-      const q = query(collection(db, 'locations'), where('locationNumber', '==', manualLocationId.trim()));
-      const snapshot = await getDocs(q);
-      
-      if (!snapshot.empty) {
-        const loc = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as Location;
+      const loc = await api.getLocationByNumber(manualLocationId.trim());
         setScannedLocation(loc);
         setIsManualLocation(false);
         if (employee) {
@@ -145,13 +132,9 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
         } else {
           setStep('pin');
         }
-      } else {
-        setError('Location ID not found');
-      }
     } catch (err) {
       console.error("Error finding location:", err);
-      setError('Error finding location');
-      handleFirestoreError(err, OperationType.LIST, 'locations');
+      setError('Location ID not found');
     }
   };
 
@@ -159,18 +142,13 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
     e.preventDefault();
     setError('');
     try {
-      const q = query(collection(db, 'employees'), where('pin', '==', pin));
-      const snapshot = await getDocs(q);
-      if (!snapshot.empty) {
-        const emp = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as Employee;
+      const emp = await api.getEmployeeByPin(pin);
+      if (emp) {
         setEmployee(emp);
-        
-        // Set initial txType based on permissions
         if (emp.permissions) {
           if (emp.permissions.canCheckOut) setTxType('OUT');
           else if (emp.permissions.canCheckIn) setTxType('IN');
         }
-        
         setStep('action');
       } else {
         setError('Invalid PIN code');
@@ -179,7 +157,6 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
     } catch (err) {
       console.error("Authentication error:", err);
       setError('Authentication error');
-      handleFirestoreError(err, OperationType.LIST, 'employees');
     }
   };
 
@@ -270,92 +247,17 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
     setIsProcessing(true);
     setError('');
     try {
-      for (const cartItem of cart) {
-        // 1. Create transaction record
-        try {
-          await addDoc(collection(db, 'transactions'), {
-            itemId: cartItem.itemId,
-            locationId: scannedLocation.id,
-            employeeId: employee.id,
-            type: txType,
-            quantity: cartItem.quantity,
-            timestamp: serverTimestamp(),
-            batchNumber: cartItem.batchNumber || null,
-            expiryDate: cartItem.expiryDate || null
-          });
-        } catch (txErr) {
-          console.error("Transaction record error:", txErr);
-          handleFirestoreError(txErr, OperationType.CREATE, 'transactions');
-        }
-
-        // 2. Update stock level
-        // For batch tracking, we use a unique ID that includes batch info if available
-        const stockId = cartItem.batchNumber 
-          ? `${cartItem.itemId}_${scannedLocation.id}_${cartItem.batchNumber}`
-          : `${cartItem.itemId}_${scannedLocation.id}`;
-        const stockRef = doc(db, 'stock', stockId);
-        
-        let stockDoc;
-        try {
-          stockDoc = await getDoc(stockRef);
-        } catch (getErr) {
-          console.error("Stock get error:", getErr);
-          handleFirestoreError(getErr, OperationType.GET, `stock/${stockId}`);
-        }
-
-        try {
-          let newQuantity = 0;
-          if (stockDoc?.exists()) {
-            const currentQty = (stockDoc.data() as Stock).quantity;
-            newQuantity = currentQty + (txType === 'IN' ? cartItem.quantity : -cartItem.quantity);
-            await updateDoc(stockRef, {
-              quantity: increment(txType === 'IN' ? cartItem.quantity : -cartItem.quantity),
-              lastUpdated: serverTimestamp()
-            });
-          } else {
-            newQuantity = txType === 'IN' ? cartItem.quantity : -cartItem.quantity;
-            await setDoc(stockRef, {
-              itemId: cartItem.itemId,
-              locationId: scannedLocation.id,
-              quantity: newQuantity,
-              lastUpdated: serverTimestamp(),
-              batchNumber: cartItem.batchNumber || null,
-              expiryDate: cartItem.expiryDate || null
-            });
-          }
-
-          // 3. Check for low stock and notify
-          const item = items.find(i => i.id === cartItem.itemId);
-          if (item && txType === 'OUT') {
-            const threshold = item.lowStockThreshold || 10;
-            if (newQuantity <= threshold) {
-              // Fetch all employees with notifications enabled
-              const notifyQuery = query(collection(db, 'employees'), where('notificationsEnabled', '==', true));
-              const notifySnapshot = await getDocs(notifyQuery);
-              const notifyEmployees = notifySnapshot.docs.map(d => d.data() as Employee);
-              
-              const alertType = newQuantity <= 0 ? 'critical_warning' : 'low_stock';
-              
-              // Send alerts to each employee
-              for (const emp of notifyEmployees) {
-                if (emp.email) {
-                  await sendInventoryAlert({
-                    type: alertType,
-                    itemName: item.name,
-                    currentStock: newQuantity,
-                    threshold: threshold,
-                    recipientEmail: emp.email
-                  });
-                }
-              }
-            }
-          }
-        } catch (writeErr) {
-          console.error("Stock write error:", writeErr);
-          handleFirestoreError(writeErr, OperationType.WRITE, `stock/${stockId}`);
-        }
-      }
-
+      await api.checkout({
+        locationId: scannedLocation.id,
+        employeeId: employee.id,
+        type: txType,
+        lines: cart.map((c) => ({
+          itemId: c.itemId,
+          quantity: c.quantity,
+          batchNumber: c.batchNumber,
+          expiryDate: c.expiryDate,
+        })),
+      });
       setStep('success');
     } catch (err) {
       console.error("Transaction failed:", err);
@@ -370,7 +272,7 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
     setIsManualLocation(false);
     setManualLocationId('');
     setScannedLocation(null);
-    setEmployee(null);
+    setEmployee(loggedInEmployee ?? null);
     setPin('');
     setSelectedItem('');
     setQuantity(1);

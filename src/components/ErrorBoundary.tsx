@@ -39,7 +39,7 @@ export class ErrorBoundary extends (React.Component as any) {
       let details = '';
 
       try {
-        // Try to parse the error message if it's a JSON string (from handleFirestoreError)
+        // Try to parse the error message if it's a JSON string (from handleApiError)
         if (this.state.error?.message) {
           const parsed = safeParse<any>(this.state.error.message, null);
           if (parsed && parsed.error) {
