@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Location, Item, Employee, Stock } from '../types/inventory';
 import { QrCode, Scan, CheckCircle2, ArrowRightLeft, Package, MapPin, User, AlertCircle, Trash2 } from 'lucide-react';
 import { Scanner } from '@yudiel/react-qr-scanner';
@@ -30,6 +30,8 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
   const [quantity, setQuantity] = useState(1);
   const [quantityInput, setQuantityInput] = useState('1');
   const [quantityError, setQuantityError] = useState('');
+  const quantityInputRef = useRef<HTMLInputElement>(null);
+  const quantityControlsRef = useRef<HTMLDivElement>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [txType, setTxType] = useState<'IN' | 'OUT'>('OUT');
   const [batchNumber, setBatchNumber] = useState('');
@@ -211,28 +213,42 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
     setCart(cart.filter((_, i) => i !== index));
   };
 
-  const parseQuantityInput = (): { ok: true; value: number } | { ok: false; message: string } => {
-    const raw = quantityInput.trim();
-    if (raw === '') {
+  const parseQuantityRaw = (
+    raw: string
+  ): { ok: true; value: number } | { ok: false; message: string } => {
+    const trimmed = raw.trim();
+    if (trimmed === '') {
       return { ok: false, message: 'Enter a quantity' };
     }
-    const parsed = parseInt(raw, 10);
+    const parsed = parseInt(trimmed, 10);
     if (isNaN(parsed) || parsed < 1) {
       return { ok: false, message: 'Quantity must be at least 1' };
     }
     return { ok: true, value: parsed };
   };
 
-  const validateQuantity = (): number | null => {
-    const result = parseQuantityInput();
+  const getQuantityRaw = () => quantityInputRef.current?.value ?? quantityInput;
+
+  const validateQuantity = (options?: { syncState?: boolean }): number | null => {
+    const result = parseQuantityRaw(getQuantityRaw());
     if (!result.ok) {
       setQuantityError(result.message);
       return null;
     }
     setQuantityError('');
-    setQuantity(result.value);
-    setQuantityInput(String(result.value));
+    if (options?.syncState !== false) {
+      setQuantity(result.value);
+      setQuantityInput(String(result.value));
+    }
     return result.value;
+  };
+
+  const handleQuantityBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+    const related = e.relatedTarget as Node | null;
+    if (related && quantityControlsRef.current?.contains(related)) {
+      return;
+    }
+    validateQuantity();
   };
 
   const setQuantityValue = (value: number) => {
@@ -542,10 +558,12 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                     </div>
                   </div>
 
-                  <div className="space-y-1">
+                  <div className="space-y-1" ref={quantityControlsRef}>
                     <div className="flex items-center gap-4">
                       <div className="flex-1 flex items-center gap-3">
                         <button 
+                          type="button"
+                          onPointerDown={(e) => e.preventDefault()}
                           onClick={() => setQuantityValue(quantity - 1)}
                           disabled={employee?.permissions?.canCheckIn === false && employee?.permissions?.canCheckOut === false}
                           className="w-12 h-12 bg-white dark:bg-stone-900 rounded-xl flex items-center justify-center text-xl font-bold text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-700 shadow-sm disabled:opacity-50"
@@ -553,6 +571,7 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                           -
                         </button>
                         <input 
+                          ref={quantityInputRef}
                           type="text"
                           inputMode="numeric"
                           pattern="[0-9]*"
@@ -567,7 +586,7 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                               setQuantity(parsed);
                             }
                           }}
-                          onBlur={validateQuantity}
+                          onBlur={handleQuantityBlur}
                           disabled={employee?.permissions?.canCheckIn === false && employee?.permissions?.canCheckOut === false}
                           className={`flex-1 h-12 bg-white dark:bg-stone-900 rounded-xl text-center font-bold text-stone-900 dark:text-white shadow-sm focus:ring-2 border-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
                             quantityError
@@ -576,6 +595,8 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                           }`}
                         />
                         <button 
+                          type="button"
+                          onPointerDown={(e) => e.preventDefault()}
                           onClick={() => setQuantityValue(quantity + 1)}
                           disabled={employee?.permissions?.canCheckIn === false && employee?.permissions?.canCheckOut === false}
                           className="w-12 h-12 bg-white dark:bg-stone-900 rounded-xl flex items-center justify-center text-xl font-bold text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-700 shadow-sm disabled:opacity-50"
@@ -584,6 +605,8 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                         </button>
                       </div>
                       <button 
+                        type="button"
+                        onPointerDown={(e) => e.preventDefault()}
                         onClick={handleAddToCart}
                         disabled={!selectedItem || (employee?.permissions?.canCheckIn === false && employee?.permissions?.canCheckOut === false)}
                         className="bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 px-8 h-12 rounded-xl font-bold text-sm hover:bg-stone-800 dark:hover:bg-white transition-all disabled:opacity-50 shadow-md"
