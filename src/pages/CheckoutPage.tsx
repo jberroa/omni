@@ -28,6 +28,8 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
   const [items, setItems] = useState<Item[]>([]);
   const [selectedItem, setSelectedItem] = useState<string>('');
   const [quantity, setQuantity] = useState(1);
+  const [quantityInput, setQuantityInput] = useState('1');
+  const [quantityError, setQuantityError] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [txType, setTxType] = useState<'IN' | 'OUT'>('OUT');
   const [batchNumber, setBatchNumber] = useState('');
@@ -199,6 +201,8 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
 
     setSelectedItem('');
     setQuantity(1);
+    setQuantityInput('1');
+    setQuantityError('');
     setBatchNumber('');
     setExpiryDate('');
   };
@@ -207,12 +211,46 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
     setCart(cart.filter((_, i) => i !== index));
   };
 
+  const parseQuantityInput = (): { ok: true; value: number } | { ok: false; message: string } => {
+    const raw = quantityInput.trim();
+    if (raw === '') {
+      return { ok: false, message: 'Enter a quantity' };
+    }
+    const parsed = parseInt(raw, 10);
+    if (isNaN(parsed) || parsed < 1) {
+      return { ok: false, message: 'Quantity must be at least 1' };
+    }
+    return { ok: true, value: parsed };
+  };
+
+  const validateQuantity = (): number | null => {
+    const result = parseQuantityInput();
+    if (!result.ok) {
+      setQuantityError(result.message);
+      return null;
+    }
+    setQuantityError('');
+    setQuantity(result.value);
+    setQuantityInput(String(result.value));
+    return result.value;
+  };
+
+  const setQuantityValue = (value: number) => {
+    const clamped = Math.max(1, value);
+    setQuantity(clamped);
+    setQuantityInput(String(clamped));
+    setQuantityError('');
+  };
+
   const handleAddToCart = () => {
     if (!selectedItem) return;
 
+    const qty = validateQuantity();
+    if (qty === null) return;
+
     if (txType === 'OUT' && !batchNumber) {
       // Auto-allocate logic (FIFO/FEFO)
-      let remainingQty = quantity;
+      let remainingQty = qty;
       const itemsToAdd: { itemId: string; quantity: number; batchNumber?: string; expiryDate?: string }[] = [];
 
       for (const stock of availableStocks) {
@@ -237,7 +275,7 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
       }
       addToCart(itemsToAdd);
     } else {
-      addToCart([{ itemId: selectedItem, quantity, batchNumber, expiryDate }]);
+      addToCart([{ itemId: selectedItem, quantity: qty, batchNumber, expiryDate }]);
     }
   };
 
@@ -276,6 +314,8 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
     setPin('');
     setSelectedItem('');
     setQuantity(1);
+    setQuantityInput('1');
+    setQuantityError('');
     setCart([]);
     setError('');
   };
@@ -502,38 +542,58 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-4">
-                    <div className="flex-1 flex items-center gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-4">
+                      <div className="flex-1 flex items-center gap-3">
+                        <button 
+                          onClick={() => setQuantityValue(quantity - 1)}
+                          disabled={employee?.permissions?.canCheckIn === false && employee?.permissions?.canCheckOut === false}
+                          className="w-12 h-12 bg-white dark:bg-stone-900 rounded-xl flex items-center justify-center text-xl font-bold text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-700 shadow-sm disabled:opacity-50"
+                        >
+                          -
+                        </button>
+                        <input 
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          value={quantityInput}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            if (raw !== '' && !/^\d+$/.test(raw)) return;
+                            setQuantityInput(raw);
+                            setQuantityError('');
+                            const parsed = parseInt(raw, 10);
+                            if (!isNaN(parsed) && parsed >= 1) {
+                              setQuantity(parsed);
+                            }
+                          }}
+                          onBlur={validateQuantity}
+                          disabled={employee?.permissions?.canCheckIn === false && employee?.permissions?.canCheckOut === false}
+                          className={`flex-1 h-12 bg-white dark:bg-stone-900 rounded-xl text-center font-bold text-stone-900 dark:text-white shadow-sm focus:ring-2 border-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
+                            quantityError
+                              ? 'ring-2 ring-red-300 dark:ring-red-800'
+                              : 'focus:ring-stone-200 dark:focus:ring-stone-700'
+                          }`}
+                        />
+                        <button 
+                          onClick={() => setQuantityValue(quantity + 1)}
+                          disabled={employee?.permissions?.canCheckIn === false && employee?.permissions?.canCheckOut === false}
+                          className="w-12 h-12 bg-white dark:bg-stone-900 rounded-xl flex items-center justify-center text-xl font-bold text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-700 shadow-sm disabled:opacity-50"
+                        >
+                          +
+                        </button>
+                      </div>
                       <button 
-                        onClick={() => setQuantity(q => Math.max(1, q - 1))}
-                        disabled={employee?.permissions?.canCheckIn === false && employee?.permissions?.canCheckOut === false}
-                        className="w-12 h-12 bg-white dark:bg-stone-900 rounded-xl flex items-center justify-center text-xl font-bold text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-700 shadow-sm disabled:opacity-50"
+                        onClick={handleAddToCart}
+                        disabled={!selectedItem || (employee?.permissions?.canCheckIn === false && employee?.permissions?.canCheckOut === false)}
+                        className="bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 px-8 h-12 rounded-xl font-bold text-sm hover:bg-stone-800 dark:hover:bg-white transition-all disabled:opacity-50 shadow-md"
                       >
-                        -
-                      </button>
-                      <input 
-                        type="number"
-                        min="1"
-                        value={quantity}
-                        onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
-                        disabled={employee?.permissions?.canCheckIn === false && employee?.permissions?.canCheckOut === false}
-                        className="flex-1 h-12 bg-white dark:bg-stone-900 rounded-xl text-center font-bold text-stone-900 dark:text-white shadow-sm focus:ring-2 focus:ring-stone-200 dark:focus:ring-stone-700 border-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                      />
-                      <button 
-                        onClick={() => setQuantity(q => q + 1)}
-                        disabled={employee?.permissions?.canCheckIn === false && employee?.permissions?.canCheckOut === false}
-                        className="w-12 h-12 bg-white dark:bg-stone-900 rounded-xl flex items-center justify-center text-xl font-bold text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-700 shadow-sm disabled:opacity-50"
-                      >
-                        +
+                        Add to List
                       </button>
                     </div>
-                    <button 
-                      onClick={handleAddToCart}
-                      disabled={!selectedItem || (employee?.permissions?.canCheckIn === false && employee?.permissions?.canCheckOut === false)}
-                      className="bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 px-8 h-12 rounded-xl font-bold text-sm hover:bg-stone-800 dark:hover:bg-white transition-all disabled:opacity-50 shadow-md"
-                    >
-                      Add to List
-                    </button>
+                    {quantityError && (
+                      <p className="text-xs font-medium text-red-600 dark:text-red-400 ml-1">{quantityError}</p>
+                    )}
                   </div>
 
                   {txType === 'IN' && (
