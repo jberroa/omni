@@ -164,49 +164,91 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
     }
   };
 
-  const addToCart = (newItems: { itemId: string; quantity: number; batchNumber?: string; expiryDate?: string }[]) => {
-    if (newItems.length === 0) return;
+  type CartLineInput = {
+    itemId: string;
+    quantity: number;
+    batchNumber?: string;
+    expiryDate?: string;
+  };
 
-    setCart(prevCart => {
-      const updatedCart = [...prevCart];
-      
-      newItems.forEach(({ itemId, quantity: qty, batchNumber: bn, expiryDate: ed }) => {
-        const item = items.find(i => i.id === itemId);
-        if (!item) return;
+  const buildCartLineEntries = (itemId: string, qty: number): CartLineInput[] => {
+    if (txType === 'OUT' && !batchNumber) {
+      let remainingQty = qty;
+      const entries: CartLineInput[] = [];
 
-        // For check-in, we might want to track batches separately in the cart too
-        // If batch info is provided, we treat it as a unique entry if it differs
-        const existingIndex = updatedCart.findIndex(c => 
-          c.itemId === itemId && c.batchNumber === bn && c.expiryDate === ed
-        );
+      for (const stock of availableStocks) {
+        if (remainingQty <= 0) break;
+        const take = Math.min(remainingQty, stock.quantity);
+        entries.push({
+          itemId,
+          quantity: take,
+          batchNumber: stock.batchNumber,
+          expiryDate: stock.expiryDate,
+        });
+        remainingQty -= take;
+      }
 
-        if (existingIndex >= 0) {
-          updatedCart[existingIndex] = {
-            ...updatedCart[existingIndex],
-            quantity: updatedCart[existingIndex].quantity + qty
-          };
-        } else {
-          updatedCart.push({
-            itemId: item.id,
-            name: item.name,
-            sku: item.sku,
-            quantity: qty,
-            imageUrl: item.imageUrl,
-            batchNumber: bn,
-            expiryDate: ed
-          });
-        }
-      });
-      
-      return updatedCart;
-    });
+      if (remainingQty > 0) {
+        entries.push({
+          itemId,
+          quantity: remainingQty,
+          batchNumber: '',
+          expiryDate: '',
+        });
+      }
 
+      return entries;
+    }
+
+    return [{ itemId, quantity: qty, batchNumber, expiryDate }];
+  };
+
+  const applyLinesToCart = (prevCart: CartItem[], entries: CartLineInput[]): CartItem[] => {
+    const updatedCart = [...prevCart];
+
+    for (const { itemId, quantity: qty, batchNumber: bn, expiryDate: ed } of entries) {
+      const item = items.find((i) => i.id === itemId);
+      if (!item) continue;
+
+      const existingIndex = updatedCart.findIndex(
+        (c) => c.itemId === itemId && c.batchNumber === bn && c.expiryDate === ed
+      );
+
+      if (existingIndex >= 0) {
+        updatedCart[existingIndex] = {
+          ...updatedCart[existingIndex],
+          quantity: updatedCart[existingIndex].quantity + qty,
+        };
+      } else {
+        updatedCart.push({
+          itemId: item.id,
+          name: item.name,
+          sku: item.sku,
+          quantity: qty,
+          imageUrl: item.imageUrl,
+          batchNumber: bn,
+          expiryDate: ed,
+        });
+      }
+    }
+
+    return updatedCart;
+  };
+
+  const resetItemForm = () => {
     setSelectedItem('');
     setQuantity(1);
     setQuantityInput('1');
     setQuantityError('');
     setBatchNumber('');
     setExpiryDate('');
+  };
+
+  const addToCart = (entries: CartLineInput[]) => {
+    if (entries.length === 0) return;
+
+    setCart((prevCart) => applyLinesToCart(prevCart, entries));
+    resetItemForm();
   };
 
   const removeFromCart = (index: number) => {
@@ -243,12 +285,14 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
     return result.value;
   };
 
-  const handleQuantityBlur = (e: React.FocusEvent<HTMLInputElement>) => {
-    const related = e.relatedTarget as Node | null;
-    if (related && quantityControlsRef.current?.contains(related)) {
-      return;
-    }
-    validateQuantity();
+  const handleQuantityBlur = () => {
+    window.setTimeout(() => {
+      const active = document.activeElement;
+      if (active && quantityControlsRef.current?.contains(active)) {
+        return;
+      }
+      validateQuantity();
+    }, 0);
   };
 
   const setQuantityValue = (value: number) => {
@@ -259,44 +303,38 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
   };
 
   const handleAddToCart = () => {
-    if (!selectedItem) return;
+    if (!selectedItem) {
+      setError('Choose an item before adding to the list');
+      return;
+    }
 
     const qty = validateQuantity();
     if (qty === null) return;
 
-    if (txType === 'OUT' && !batchNumber) {
-      // Auto-allocate logic (FIFO/FEFO)
-      let remainingQty = qty;
-      const itemsToAdd: { itemId: string; quantity: number; batchNumber?: string; expiryDate?: string }[] = [];
-
-      for (const stock of availableStocks) {
-        if (remainingQty <= 0) break;
-        const take = Math.min(remainingQty, stock.quantity);
-        itemsToAdd.push({
-          itemId: selectedItem,
-          quantity: take,
-          batchNumber: stock.batchNumber,
-          expiryDate: stock.expiryDate
-        });
-        remainingQty -= take;
-      }
-
-      if (remainingQty > 0) {
-        itemsToAdd.push({
-          itemId: selectedItem,
-          quantity: remainingQty,
-          batchNumber: '',
-          expiryDate: ''
-        });
-      }
-      addToCart(itemsToAdd);
-    } else {
-      addToCart([{ itemId: selectedItem, quantity: qty, batchNumber, expiryDate }]);
-    }
+    addToCart(buildCartLineEntries(selectedItem, qty));
   };
 
+  const buildCheckoutCart = (): CartItem[] | null => {
+    let checkoutCart = [...cart];
+
+    if (selectedItem) {
+      const qty = validateQuantity();
+      if (qty === null) return null;
+      checkoutCart = applyLinesToCart(checkoutCart, buildCartLineEntries(selectedItem, qty));
+    }
+
+    return checkoutCart.length > 0 ? checkoutCart : null;
+  };
+
+  const pendingQuantityValid =
+    selectedItem !== '' && parseQuantityRaw(getQuantityRaw()).ok;
+  const canCheckout = cart.length > 0 || pendingQuantityValid;
+
   const handleTransaction = async () => {
-    if (cart.length === 0 || !scannedLocation || !employee) return;
+    if (!scannedLocation || !employee) return;
+
+    const checkoutCart = buildCheckoutCart();
+    if (!checkoutCart) return;
 
     setIsProcessing(true);
     setError('');
@@ -305,13 +343,15 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
         locationId: scannedLocation.id,
         employeeId: employee.id,
         type: txType,
-        lines: cart.map((c) => ({
+        lines: checkoutCart.map((c) => ({
           itemId: c.itemId,
           quantity: c.quantity,
           batchNumber: c.batchNumber,
           expiryDate: c.expiryDate,
         })),
       });
+      setCart([]);
+      resetItemForm();
       setStep('success');
     } catch (err) {
       console.error("Transaction failed:", err);
@@ -563,7 +603,6 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                       <div className="flex-1 flex items-center gap-3">
                         <button 
                           type="button"
-                          onPointerDown={(e) => e.preventDefault()}
                           onClick={() => setQuantityValue(quantity - 1)}
                           disabled={employee?.permissions?.canCheckIn === false && employee?.permissions?.canCheckOut === false}
                           className="w-12 h-12 bg-white dark:bg-stone-900 rounded-xl flex items-center justify-center text-xl font-bold text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-700 shadow-sm disabled:opacity-50"
@@ -596,7 +635,6 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                         />
                         <button 
                           type="button"
-                          onPointerDown={(e) => e.preventDefault()}
                           onClick={() => setQuantityValue(quantity + 1)}
                           disabled={employee?.permissions?.canCheckIn === false && employee?.permissions?.canCheckOut === false}
                           className="w-12 h-12 bg-white dark:bg-stone-900 rounded-xl flex items-center justify-center text-xl font-bold text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-700 shadow-sm disabled:opacity-50"
@@ -606,7 +644,6 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                       </div>
                       <button 
                         type="button"
-                        onPointerDown={(e) => e.preventDefault()}
                         onClick={handleAddToCart}
                         disabled={!selectedItem || (employee?.permissions?.canCheckIn === false && employee?.permissions?.canCheckOut === false)}
                         className="bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 px-8 h-12 rounded-xl font-bold text-sm hover:bg-stone-800 dark:hover:bg-white transition-all disabled:opacity-50 shadow-md"
@@ -714,8 +751,9 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                 )}
 
                 <button 
+                  type="button"
                   onClick={handleTransaction}
-                  disabled={cart.length === 0 || isProcessing}
+                  disabled={!canCheckout || isProcessing}
                   className="w-full bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 py-5 rounded-[24px] font-bold text-lg hover:bg-stone-800 dark:hover:bg-white transition-all shadow-xl shadow-stone-200 dark:shadow-none disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {isProcessing ? (
@@ -724,9 +762,14 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                       Processing...
                     </>
                   ) : (
-                    `Confirm ${txType === 'IN' ? 'Check In' : 'Check Out'} (${cart.length} items)`
+                    `Confirm ${txType === 'IN' ? 'Check In' : 'Check Out'} (${cart.length + (pendingQuantityValid ? 1 : 0)} items)`
                   )}
                 </button>
+                {!canCheckout && (
+                  <p className="text-center text-xs text-stone-400 dark:text-stone-500">
+                    Select an item and enter a quantity to check out
+                  </p>
+                )}
               </div>
             </div>
           )}
