@@ -42,8 +42,8 @@ export default function App() {
   if (employee.role === "staff") {
     return (
       <ErrorBoundary>
-        <div className="min-h-screen bg-[#f5f5f4] dark:bg-stone-950 p-6 transition-colors">
-          <div className="max-w-4xl mx-auto">
+        <div className="min-h-screen bg-[#f5f5f4] dark:bg-stone-950 p-4 sm:p-6 transition-colors overflow-x-hidden">
+          <div className="max-w-4xl mx-auto min-w-0">
             <div className="flex justify-between items-center mb-8">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 bg-stone-900 dark:bg-white rounded-xl flex items-center justify-center">

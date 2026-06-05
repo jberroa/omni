@@ -377,13 +377,13 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
   };
 
   return (
-    <div className="max-w-2xl mx-auto space-y-8">
-      <header className="text-center">
-        <h2 className="text-4xl font-bold text-stone-900 dark:text-white tracking-tight">Stock Movement</h2>
-        <p className="text-stone-500 dark:text-stone-400 mt-2">Scan location QR and enter PIN to check items in/out.</p>
+    <div className="max-w-2xl mx-auto w-full min-w-0 space-y-4 sm:space-y-8 overflow-x-hidden">
+      <header className="text-center px-1">
+        <h2 className="text-2xl sm:text-4xl font-bold text-stone-900 dark:text-white tracking-tight">Stock Movement</h2>
+        <p className="text-sm sm:text-base text-stone-500 dark:text-stone-400 mt-2">Scan location QR and enter PIN to check items in/out.</p>
       </header>
 
-      <div className="bg-white dark:bg-stone-900 rounded-[40px] border border-stone-100 dark:border-stone-800 shadow-xl shadow-stone-200/50 dark:shadow-none overflow-hidden min-h-[500px] flex flex-col">
+      <div className="bg-white dark:bg-stone-900 rounded-3xl sm:rounded-[40px] border border-stone-100 dark:border-stone-800 shadow-xl shadow-stone-200/50 dark:shadow-none overflow-hidden min-h-0 sm:min-h-[500px] flex flex-col w-full">
         {/* Progress Header */}
         <div className="flex border-b border-stone-100 dark:border-stone-800">
           {[
@@ -404,9 +404,9 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
           ))}
         </div>
 
-        <div className="flex-1 p-10 flex flex-col items-center justify-center relative">
+        <div className="flex-1 p-4 sm:p-6 md:p-10 flex flex-col items-center justify-center relative w-full min-w-0">
           {error && (
-            <div className="absolute top-4 left-10 right-10 bg-red-50 dark:bg-red-900/40 text-red-600 dark:text-red-400 px-4 py-3 rounded-2xl text-sm flex items-center gap-2 border border-red-100 dark:border-red-900/50">
+            <div className="absolute top-4 left-4 right-4 sm:left-6 sm:right-6 md:left-10 md:right-10 bg-red-50 dark:bg-red-900/40 text-red-600 dark:text-red-400 px-4 py-3 rounded-2xl text-sm flex items-center gap-2 border border-red-100 dark:border-red-900/50 z-10">
               <AlertCircle className="w-4 h-4" />
               {error}
             </div>
@@ -451,7 +451,7 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                     autoFocus
                     type="text"
                     placeholder="Location ID #"
-                    className="w-full px-6 py-4 bg-stone-50 dark:bg-stone-800 border-none rounded-2xl text-center text-2xl font-bold tracking-widest focus:ring-2 focus:ring-stone-200 dark:focus:ring-stone-700 text-stone-900 dark:text-white placeholder:text-stone-300 dark:placeholder:text-stone-600 transition-all"
+                    className="w-full px-4 sm:px-6 py-4 bg-stone-50 dark:bg-stone-800 border-none rounded-2xl text-center text-xl sm:text-2xl font-bold tracking-widest focus:ring-2 focus:ring-stone-200 dark:focus:ring-stone-700 text-stone-900 dark:text-white placeholder:text-stone-300 dark:placeholder:text-stone-600 transition-all"
                     value={manualLocationId}
                     onChange={(e) => setManualLocationId(e.target.value)}
                   />
@@ -476,15 +476,15 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
           )}
 
           {step === 'pin' && (
-            <form id="pin-form" onSubmit={handlePinSubmit} className="w-full max-w-xs space-y-8 text-center">
+            <form id="pin-form" onSubmit={handlePinSubmit} className="w-full max-w-xs space-y-6 sm:space-y-8 text-center px-1">
               <div className="space-y-2">
                 <h3 className="text-2xl font-bold text-stone-900 dark:text-white">{scannedLocation?.name}</h3>
                 <p className="text-stone-500 dark:text-stone-400 text-sm">Enter your 4-digit employee PIN</p>
               </div>
               
-              <div className="grid grid-cols-4 gap-3">
+              <div className="grid grid-cols-4 gap-2 sm:gap-3">
                 {[...Array(4)].map((_, i) => (
-                  <div key={i} className={`h-16 rounded-2xl border-2 flex items-center justify-center text-2xl font-bold ${
+                  <div key={i} className={`h-14 sm:h-16 rounded-2xl border-2 flex items-center justify-center text-2xl font-bold ${
                     pin.length > i 
                       ? "border-stone-900 dark:border-stone-100 bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900" 
                       : "border-stone-100 dark:border-stone-800 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-white"
@@ -494,7 +494,7 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                 ))}
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-3 gap-2 sm:gap-3">
                 {[1, 2, 3, 4, 5, 6, 7, 8, 9, 'C', 0, 'OK'].map((num) => (
                   <button
                     key={num}
@@ -504,7 +504,7 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                       else if (num === 'OK') return;
                       else setPin(p => p.length < 4 ? p + num : p);
                     }}
-                    className={`h-16 rounded-2xl font-bold text-xl transition-all ${
+                    className={`h-14 sm:h-16 rounded-2xl font-bold text-xl transition-all touch-manipulation ${
                       num === 'OK' 
                         ? "bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 shadow-lg shadow-stone-200 dark:shadow-none" 
                         : "bg-stone-50 dark:bg-stone-800 text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-700"
@@ -518,24 +518,24 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
           )}
 
           {step === 'action' && (
-            <div className="w-full space-y-8">
-              <div className="flex items-center justify-between p-6 bg-stone-50 dark:bg-stone-800 rounded-[32px] border border-stone-100 dark:border-stone-700">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-white dark:bg-stone-900 rounded-2xl flex items-center justify-center shadow-sm">
-                    <MapPin className="w-6 h-6 text-stone-900 dark:text-white" />
+            <div className="w-full min-w-0 space-y-4 sm:space-y-8">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between p-4 sm:p-6 bg-stone-50 dark:bg-stone-800 rounded-2xl sm:rounded-[32px] border border-stone-100 dark:border-stone-700">
+                <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 shrink-0 bg-white dark:bg-stone-900 rounded-2xl flex items-center justify-center shadow-sm">
+                    <MapPin className="w-5 h-5 sm:w-6 sm:h-6 text-stone-900 dark:text-white" />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-xs font-bold text-stone-400 dark:text-stone-500 uppercase tracking-widest">Location</p>
-                    <p className="font-bold text-stone-900 dark:text-white">{scannedLocation?.name}</p>
+                    <p className="font-bold text-stone-900 dark:text-white truncate">{scannedLocation?.name}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-4 text-right">
-                  <div>
+                <div className="flex items-center gap-3 sm:gap-4 sm:text-right border-t border-stone-200/80 dark:border-stone-700/80 pt-4 sm:border-0 sm:pt-0">
+                  <div className="min-w-0 flex-1 sm:flex-none">
                     <p className="text-xs font-bold text-stone-400 dark:text-stone-500 uppercase tracking-widest">Employee</p>
-                    <p className="font-bold text-stone-900 dark:text-white">{employee?.name}</p>
+                    <p className="font-bold text-stone-900 dark:text-white truncate">{employee?.name}</p>
                   </div>
-                  <div className="w-12 h-12 bg-white dark:bg-stone-900 rounded-2xl flex items-center justify-center shadow-sm">
-                    <User className="w-6 h-6 text-stone-900 dark:text-white" />
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 shrink-0 bg-white dark:bg-stone-900 rounded-2xl flex items-center justify-center shadow-sm">
+                    <User className="w-5 h-5 sm:w-6 sm:h-6 text-stone-900 dark:text-white" />
                   </div>
                 </div>
               </div>
@@ -559,7 +559,8 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                         txType === 'IN' ? "bg-white dark:bg-stone-700 text-green-600 dark:text-green-400 shadow-sm" : "text-stone-500 dark:text-stone-400"
                       } ${employee?.permissions?.canCheckIn === false ? "opacity-30 cursor-not-allowed" : ""}`}
                     >
-                      Check In (Restock)
+                      <span className="sm:hidden">Check In</span>
+                      <span className="hidden sm:inline">Check In (Restock)</span>
                     </button>
                   </div>
                 ) : (
@@ -568,11 +569,11 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                   </div>
                 )}
 
-                <div className="space-y-4 bg-stone-50 dark:bg-stone-800 p-6 rounded-[32px] border border-stone-100 dark:border-stone-700">
+                <div className="space-y-4 bg-stone-50 dark:bg-stone-800 p-4 sm:p-6 rounded-2xl sm:rounded-[32px] border border-stone-100 dark:border-stone-700 min-w-0">
                   <div className="space-y-2">
-                    <label className="text-xs font-bold text-stone-400 dark:text-stone-500 uppercase tracking-widest ml-4">Add Item</label>
-                    <div className="flex gap-4">
-                      <div className="w-16 h-16 bg-white dark:bg-stone-900 rounded-2xl border border-stone-100 dark:border-stone-700 flex items-center justify-center overflow-hidden flex-shrink-0 shadow-sm">
+                    <label className="text-xs font-bold text-stone-400 dark:text-stone-500 uppercase tracking-widest ml-1 sm:ml-4">Add Item</label>
+                    <div className="flex gap-3 sm:gap-4 min-w-0">
+                      <div className="w-14 h-14 sm:w-16 sm:h-16 shrink-0 bg-white dark:bg-stone-900 rounded-2xl border border-stone-100 dark:border-stone-700 flex items-center justify-center overflow-hidden shadow-sm">
                         {selectedItem && items.find(i => i.id === selectedItem)?.imageUrl ? (
                           <img 
                             src={items.find(i => i.id === selectedItem)?.imageUrl} 
@@ -585,7 +586,7 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                         )}
                       </div>
                       <select 
-                        className="flex-1 p-4 bg-white dark:bg-stone-900 border-none rounded-2xl text-stone-900 dark:text-white font-medium focus:ring-2 focus:ring-stone-200 dark:focus:ring-stone-700 shadow-sm"
+                        className="flex-1 min-w-0 p-3 sm:p-4 text-base bg-white dark:bg-stone-900 border-none rounded-2xl text-stone-900 dark:text-white font-medium focus:ring-2 focus:ring-stone-200 dark:focus:ring-stone-700 shadow-sm"
                         value={selectedItem}
                         onChange={(e) => setSelectedItem(e.target.value)}
                         disabled={employee?.permissions?.canCheckIn === false && employee?.permissions?.canCheckOut === false}
@@ -598,14 +599,18 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                     </div>
                   </div>
 
-                  <div className="space-y-1" ref={quantityControlsRef}>
-                    <div className="flex items-center gap-4">
-                      <div className="flex-1 flex items-center gap-3">
+                  <div className="space-y-2 min-w-0" ref={quantityControlsRef}>
+                    <label className="text-xs font-bold text-stone-400 dark:text-stone-500 uppercase tracking-widest ml-1 sm:ml-4">
+                      Quantity
+                    </label>
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+                      <div className="flex w-full min-w-0 items-center gap-2 sm:gap-3 sm:flex-1">
                         <button 
                           type="button"
                           onClick={() => setQuantityValue(quantity - 1)}
                           disabled={employee?.permissions?.canCheckIn === false && employee?.permissions?.canCheckOut === false}
-                          className="w-12 h-12 bg-white dark:bg-stone-900 rounded-xl flex items-center justify-center text-xl font-bold text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-700 shadow-sm disabled:opacity-50"
+                          className="w-11 h-11 sm:w-12 sm:h-12 shrink-0 bg-white dark:bg-stone-900 rounded-xl flex items-center justify-center text-xl font-bold text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-700 shadow-sm disabled:opacity-50 touch-manipulation"
+                          aria-label="Decrease quantity"
                         >
                           -
                         </button>
@@ -614,6 +619,8 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                           type="text"
                           inputMode="numeric"
                           pattern="[0-9]*"
+                          enterKeyHint="done"
+                          autoComplete="off"
                           value={quantityInput}
                           onChange={(e) => {
                             const raw = e.target.value;
@@ -627,7 +634,7 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                           }}
                           onBlur={handleQuantityBlur}
                           disabled={employee?.permissions?.canCheckIn === false && employee?.permissions?.canCheckOut === false}
-                          className={`flex-1 h-12 bg-white dark:bg-stone-900 rounded-xl text-center font-bold text-stone-900 dark:text-white shadow-sm focus:ring-2 border-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
+                          className={`flex-1 min-w-0 h-14 sm:h-12 bg-white dark:bg-stone-900 rounded-xl text-center text-lg sm:text-base font-bold text-stone-900 dark:text-white shadow-sm focus:ring-2 border-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
                             quantityError
                               ? 'ring-2 ring-red-300 dark:ring-red-800'
                               : 'focus:ring-stone-200 dark:focus:ring-stone-700'
@@ -637,7 +644,8 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                           type="button"
                           onClick={() => setQuantityValue(quantity + 1)}
                           disabled={employee?.permissions?.canCheckIn === false && employee?.permissions?.canCheckOut === false}
-                          className="w-12 h-12 bg-white dark:bg-stone-900 rounded-xl flex items-center justify-center text-xl font-bold text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-700 shadow-sm disabled:opacity-50"
+                          className="w-11 h-11 sm:w-12 sm:h-12 shrink-0 bg-white dark:bg-stone-900 rounded-xl flex items-center justify-center text-xl font-bold text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-700 shadow-sm disabled:opacity-50 touch-manipulation"
+                          aria-label="Increase quantity"
                         >
                           +
                         </button>
@@ -646,7 +654,7 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                         type="button"
                         onClick={handleAddToCart}
                         disabled={!selectedItem || (employee?.permissions?.canCheckIn === false && employee?.permissions?.canCheckOut === false)}
-                        className="bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 px-8 h-12 rounded-xl font-bold text-sm hover:bg-stone-800 dark:hover:bg-white transition-all disabled:opacity-50 shadow-md"
+                        className="w-full sm:w-auto sm:shrink-0 bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 px-6 sm:px-8 h-12 rounded-xl font-bold text-sm hover:bg-stone-800 dark:hover:bg-white transition-all disabled:opacity-50 shadow-md touch-manipulation"
                       >
                         Add to List
                       </button>
@@ -657,13 +665,13 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                   </div>
 
                   {txType === 'IN' && (
-                    <div className="grid grid-cols-2 gap-4 pt-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
                       <div className="space-y-1">
                         <label className="text-[10px] font-bold text-stone-400 dark:text-stone-500 uppercase tracking-widest ml-2">Batch Number</label>
                         <input 
                           type="text"
                           placeholder="Optional"
-                          className="w-full p-3 bg-white dark:bg-stone-900 border-none rounded-xl text-xs text-stone-900 dark:text-white focus:ring-2 focus:ring-stone-200 dark:focus:ring-stone-700 shadow-sm"
+                          className="w-full p-3 text-base bg-white dark:bg-stone-900 border-none rounded-xl text-stone-900 dark:text-white focus:ring-2 focus:ring-stone-200 dark:focus:ring-stone-700 shadow-sm"
                           value={batchNumber}
                           onChange={(e) => setBatchNumber(e.target.value)}
                         />
@@ -672,7 +680,7 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                         <label className="text-[10px] font-bold text-stone-400 dark:text-stone-500 uppercase tracking-widest ml-2">Expiry Date</label>
                         <input 
                           type="date"
-                          className="w-full p-3 bg-white dark:bg-stone-900 border-none rounded-xl text-xs text-stone-900 dark:text-white focus:ring-2 focus:ring-stone-200 dark:focus:ring-stone-700 shadow-sm"
+                          className="w-full p-3 text-base bg-white dark:bg-stone-900 border-none rounded-xl text-stone-900 dark:text-white focus:ring-2 focus:ring-stone-200 dark:focus:ring-stone-700 shadow-sm"
                           value={expiryDate}
                           onChange={(e) => setExpiryDate(e.target.value)}
                         />
@@ -684,7 +692,7 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                     <div className="space-y-1 pt-2">
                       <label className="text-[10px] font-bold text-stone-400 dark:text-stone-500 uppercase tracking-widest ml-2">Select Batch</label>
                       <select 
-                        className="w-full p-3 bg-white dark:bg-stone-900 border-none rounded-xl text-xs text-stone-900 dark:text-white focus:ring-2 focus:ring-stone-200 dark:focus:ring-stone-700 shadow-sm"
+                        className="w-full p-3 text-base bg-white dark:bg-stone-900 border-none rounded-xl text-stone-900 dark:text-white focus:ring-2 focus:ring-stone-200 dark:focus:ring-stone-700 shadow-sm"
                         value={batchNumber}
                         onChange={(e) => {
                           const bn = e.target.value;
@@ -713,19 +721,19 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                     </div>
                     <div className="space-y-2 max-h-[200px] overflow-y-auto pr-2 custom-scrollbar">
                       {cart.map((item, idx) => (
-                        <div key={`${item.itemId}-${idx}`} className="flex items-center justify-between p-4 bg-white dark:bg-stone-900 rounded-2xl border border-stone-100 dark:border-stone-800 shadow-sm group">
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-stone-50 dark:bg-stone-800 rounded-lg overflow-hidden flex-shrink-0">
+                        <div key={`${item.itemId}-${idx}`} className="flex items-center justify-between gap-2 p-3 sm:p-4 bg-white dark:bg-stone-900 rounded-2xl border border-stone-100 dark:border-stone-800 shadow-sm group min-w-0">
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                            <div className="w-10 h-10 bg-stone-50 dark:bg-stone-800 rounded-lg overflow-hidden shrink-0">
                               {item.imageUrl ? (
                                 <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                               ) : (
                                 <div className="w-full h-full flex items-center justify-center"><Package className="w-4 h-4 text-stone-300 dark:text-stone-600" /></div>
                               )}
                             </div>
-                              <div>
-                                <p className="text-sm font-bold text-stone-900 dark:text-white">{item.name}</p>
-                                <div className="flex items-center gap-2">
-                                  <p className="text-[10px] text-stone-400 dark:text-stone-500 font-mono">{item.sku}</p>
+                              <div className="min-w-0">
+                                <p className="text-sm font-bold text-stone-900 dark:text-white truncate">{item.name}</p>
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <p className="text-[10px] text-stone-400 dark:text-stone-500 font-mono truncate">{item.sku}</p>
                                   {item.batchNumber && (
                                     <>
                                       <span className="text-[10px] text-stone-300 dark:text-stone-600">•</span>
@@ -735,11 +743,13 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                                 </div>
                               </div>
                           </div>
-                          <div className="flex items-center gap-4">
-                            <span className="text-sm font-bold text-stone-900 dark:text-white">x{item.quantity}</span>
+                          <div className="flex items-center gap-2 sm:gap-4 shrink-0">
+                            <span className="text-sm font-bold text-stone-900 dark:text-white tabular-nums">x{item.quantity}</span>
                             <button 
+                              type="button"
                               onClick={() => removeFromCart(idx)}
-                              className="p-2 text-stone-300 dark:text-stone-600 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                              className="p-2 text-stone-300 dark:text-stone-600 hover:text-red-500 dark:hover:text-red-400 transition-colors touch-manipulation"
+                              aria-label={`Remove ${item.name}`}
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
@@ -754,7 +764,7 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                   type="button"
                   onClick={handleTransaction}
                   disabled={!canCheckout || isProcessing}
-                  className="w-full bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 py-5 rounded-[24px] font-bold text-lg hover:bg-stone-800 dark:hover:bg-white transition-all shadow-xl shadow-stone-200 dark:shadow-none disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="w-full bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 py-4 sm:py-5 rounded-2xl sm:rounded-[24px] font-bold text-base sm:text-lg hover:bg-stone-800 dark:hover:bg-white transition-all shadow-xl shadow-stone-200 dark:shadow-none disabled:opacity-50 flex items-center justify-center gap-2 touch-manipulation min-h-[52px]"
                 >
                   {isProcessing ? (
                     <>
