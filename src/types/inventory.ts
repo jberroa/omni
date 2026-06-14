@@ -41,6 +41,22 @@ export interface Transaction {
   expiryDate?: string;
 }
 
+export interface InventoryCheck {
+  id: string;
+  locationId: string;
+  employeeId: string;
+  timestamp: string;
+  lines?: InventoryCheckLine[];
+}
+
+export interface InventoryCheckLine {
+  id: string;
+  checkId: string;
+  itemId: string;
+  itemName: string;
+  quantity: number;
+}
+
 export interface Employee {
   id: string;
   name: string;
@@ -51,5 +67,6 @@ export interface Employee {
   permissions?: {
     canCheckIn: boolean;
     canCheckOut: boolean;
+    canInventoryCheck?: boolean;
   };
 }

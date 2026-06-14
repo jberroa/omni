@@ -8,6 +8,8 @@ import {
   mapEmployeeRow,
   mapStockRow,
   mapTransactionRow,
+  mapInventoryCheckRow,
+  mapInventoryCheckLineRow,
   stockRowId,
 } from "./mappers";
 import { sendInventoryAlertEmail } from "./mail";
@@ -602,6 +604,127 @@ export function registerInventoryRoutes(
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: "Checkout failed" });
+    }
+  });
+
+  app.get("/api/inventory-checks", (req: Request, res: Response) => {
+    try {
+      const locationId = req.query.locationId
+        ? String(req.query.locationId)
+        : "";
+      const employeeId = req.query.employeeId
+        ? String(req.query.employeeId)
+        : "";
+      const startDate = req.query.startDate
+        ? String(req.query.startDate)
+        : "";
+      const endDate = req.query.endDate ? String(req.query.endDate) : "";
+      const limit = Math.min(
+        10000,
+        Math.max(1, Number(req.query.limit ?? 5000) || 5000)
+      );
+
+      const conditions: string[] = [];
+      const params: unknown[] = [];
+
+      if (locationId) {
+        conditions.push("location_id = ?");
+        params.push(locationId);
+      }
+      if (employeeId) {
+        conditions.push("employee_id = ?");
+        params.push(employeeId);
+      }
+      if (startDate) {
+        conditions.push("timestamp >= ?");
+        params.push(`${startDate}T00:00:00.000Z`);
+      }
+      if (endDate) {
+        conditions.push("timestamp <= ?");
+        params.push(`${endDate}T23:59:59.999Z`);
+      }
+
+      const where =
+        conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+      params.push(limit);
+
+      const checkRows = db
+        .prepare(
+          `SELECT * FROM inventory_checks ${where} ORDER BY timestamp DESC LIMIT ?`
+        )
+        .all(...params) as Record<string, unknown>[];
+
+      const lineStmt = db.prepare(
+        `SELECT * FROM inventory_check_lines WHERE check_id = ? ORDER BY item_name COLLATE NOCASE`
+      );
+
+      const checks = checkRows.map((row) => {
+        const check = mapInventoryCheckRow(row);
+        const lines = (lineStmt.all(check.id) as Record<string, unknown>[]).map(
+          mapInventoryCheckLineRow
+        );
+        return { ...check, lines };
+      });
+
+      res.json(checks);
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Failed to list inventory checks" });
+    }
+  });
+
+  app.post("/api/inventory-checks", (req: Request, res: Response) => {
+    try {
+      const b = req.body || {};
+      const locationId = String(b.locationId ?? "");
+      const employeeId = String(b.employeeId ?? "");
+      const lines = (b.lines ?? []) as Array<{
+        itemId: string;
+        quantity: number;
+      }>;
+
+      if (!locationId || !employeeId || !Array.isArray(lines) || lines.length === 0) {
+        return res.status(400).json({ error: "Invalid body" });
+      }
+
+      const itemStmt = db.prepare(`SELECT * FROM items WHERE id = ?`);
+      const checkId = randomUUID();
+      const ts = nowIso();
+
+      const runCheck = db.transaction(() => {
+        db.prepare(
+          `INSERT INTO inventory_checks (id, location_id, employee_id, timestamp)
+           VALUES (?, ?, ?, ?)`
+        ).run(checkId, locationId, employeeId, ts);
+
+        const insertLine = db.prepare(
+          `INSERT INTO inventory_check_lines (id, check_id, item_id, item_name, quantity)
+           VALUES (?, ?, ?, ?, ?)`
+        );
+
+        for (const line of lines) {
+          const itemId = String(line.itemId ?? "");
+          const qty = Number(line.quantity ?? 0);
+          if (!itemId) continue;
+          if (qty < 0) {
+            throw new Error("Negative quantity not allowed");
+          }
+
+          const itemRow = itemStmt.get(itemId) as
+            | Record<string, unknown>
+            | undefined;
+          const itemName = itemRow ? String(itemRow.name ?? "Unknown Item") : "Unknown Item";
+
+          insertLine.run(randomUUID(), checkId, itemId, itemName, qty);
+        }
+      });
+
+      runCheck();
+      res.json({ ok: true, id: checkId });
+    } catch (e) {
+      console.error(e);
+      const msg = e instanceof Error ? e.message : "Inventory check failed";
+      res.status(500).json({ error: msg });
     }
   });
 }

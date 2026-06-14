@@ -48,4 +48,22 @@ function migrate(db: Database.Database) {
       `ALTER TABLE employees ADD COLUMN notifications_enabled INTEGER DEFAULT 0`
     );
   }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS inventory_checks (
+      id TEXT PRIMARY KEY,
+      location_id TEXT NOT NULL,
+      employee_id TEXT NOT NULL,
+      timestamp TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS inventory_check_lines (
+      id TEXT PRIMARY KEY,
+      check_id TEXT NOT NULL,
+      item_id TEXT NOT NULL,
+      item_name TEXT NOT NULL,
+      quantity REAL NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_inventory_checks_location_timestamp
+      ON inventory_checks (location_id, timestamp);
+  `);
 }

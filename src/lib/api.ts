@@ -1,4 +1,11 @@
-import type { Employee, Item, Location, Stock, Transaction } from "../types/inventory";
+import type {
+  Employee,
+  InventoryCheck,
+  Item,
+  Location,
+  Stock,
+  Transaction,
+} from "../types/inventory";
 
 export enum OperationType {
   CREATE = "create",
@@ -177,5 +184,40 @@ export const api = {
     }>;
   }): Promise<{ ok: boolean }> {
     return reqJson("/api/checkout", { method: "POST", body: JSON.stringify(body) }, OperationType.WRITE, "checkout");
+  },
+
+  getInventoryChecks(params?: {
+    locationId?: string;
+    employeeId?: string;
+    startDate?: string;
+    endDate?: string;
+    limit?: number;
+  }): Promise<InventoryCheck[]> {
+    const q = new URLSearchParams();
+    if (params?.locationId) q.set("locationId", params.locationId);
+    if (params?.employeeId) q.set("employeeId", params.employeeId);
+    if (params?.startDate) q.set("startDate", params.startDate);
+    if (params?.endDate) q.set("endDate", params.endDate);
+    if (params?.limit != null) q.set("limit", String(params.limit));
+    const suffix = q.toString() ? `?${q}` : "";
+    return reqJson<InventoryCheck[]>(
+      `/api/inventory-checks${suffix}`,
+      undefined,
+      OperationType.LIST,
+      "inventory-checks"
+    );
+  },
+
+  submitInventoryCheck(body: {
+    locationId: string;
+    employeeId: string;
+    lines: Array<{ itemId: string; quantity: number }>;
+  }): Promise<{ ok: boolean; id: string }> {
+    return reqJson(
+      "/api/inventory-checks",
+      { method: "POST", body: JSON.stringify(body) },
+      OperationType.WRITE,
+      "inventory-checks"
+    );
   },
 };

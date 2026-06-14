@@ -1,4 +1,12 @@
-import type { Employee, Item, Location, Stock, Transaction } from "../src/types/inventory";
+import type {
+  Employee,
+  InventoryCheck,
+  InventoryCheckLine,
+  Item,
+  Location,
+  Stock,
+  Transaction,
+} from "../src/types/inventory";
 
 export function mapItemRow(row: Record<string, unknown>): Item {
   return {
@@ -30,7 +38,7 @@ export function mapLocationRow(row: Record<string, unknown>): Location {
 }
 
 export function mapEmployeeRow(row: Record<string, unknown>): Employee {
-  let permissions = { canCheckIn: true, canCheckOut: true };
+  let permissions = { canCheckIn: true, canCheckOut: true, canInventoryCheck: true };
   if (row.permissions != null && String(row.permissions).trim() !== "") {
     try {
       permissions = { ...permissions, ...JSON.parse(String(row.permissions)) };
@@ -71,6 +79,27 @@ export function mapTransactionRow(row: Record<string, unknown>): Transaction {
     timestamp: row.timestamp ?? null,
     batchNumber: row.batch_number ? String(row.batch_number) : undefined,
     expiryDate: row.expiry_date ? String(row.expiry_date) : undefined,
+  };
+}
+
+export function mapInventoryCheckRow(row: Record<string, unknown>): InventoryCheck {
+  return {
+    id: String(row.id),
+    locationId: String(row.location_id),
+    employeeId: String(row.employee_id),
+    timestamp: String(row.timestamp ?? ""),
+  };
+}
+
+export function mapInventoryCheckLineRow(
+  row: Record<string, unknown>
+): InventoryCheckLine {
+  return {
+    id: String(row.id),
+    checkId: String(row.check_id),
+    itemId: String(row.item_id),
+    itemName: String(row.item_name ?? ""),
+    quantity: Number(row.quantity ?? 0),
   };
 }
 

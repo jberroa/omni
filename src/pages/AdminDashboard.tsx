@@ -38,7 +38,7 @@ export function AdminDashboard({ loggedInEmployee }: AdminDashboardProps) {
     email: '',
     notificationsEnabled: false,
     role: 'staff' as const,
-    permissions: { canCheckIn: true, canCheckOut: true }
+    permissions: { canCheckIn: true, canCheckOut: true, canInventoryCheck: true }
   });
   const [isAddingItem, setIsAddingItem] = useState(false);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
@@ -354,7 +354,7 @@ export function AdminDashboard({ loggedInEmployee }: AdminDashboardProps) {
         email: '',
         notificationsEnabled: false,
         role: 'staff',
-        permissions: { canCheckIn: true, canCheckOut: true }
+        permissions: { canCheckIn: true, canCheckOut: true, canInventoryCheck: true }
       });
       setEditingEmployeeId(null);
     } catch (err) {
@@ -762,7 +762,7 @@ export function AdminDashboard({ loggedInEmployee }: AdminDashboardProps) {
                         email: '',
                         notificationsEnabled: false,
                         role: 'staff',
-                        permissions: { canCheckIn: true, canCheckOut: true }
+                        permissions: { canCheckIn: true, canCheckOut: true, canInventoryCheck: true }
                       });
                     }}
                     className="text-xs font-bold text-stone-400 dark:text-stone-500 hover:text-stone-900 dark:hover:text-white uppercase tracking-widest"
@@ -841,7 +841,7 @@ export function AdminDashboard({ loggedInEmployee }: AdminDashboardProps) {
                 </div>
                 <div className="space-y-4">
                   <label className="text-xs font-bold text-stone-400 dark:text-stone-500 uppercase tracking-widest ml-4">Permissions</label>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <label className="flex items-center gap-3 p-4 bg-stone-50 dark:bg-stone-800 rounded-2xl cursor-pointer hover:bg-stone-100 dark:hover:bg-stone-700 transition-colors">
                       <input
                         type="checkbox"
@@ -865,6 +865,18 @@ export function AdminDashboard({ loggedInEmployee }: AdminDashboardProps) {
                         })}
                       />
                       <span className="text-sm font-bold text-stone-700 dark:text-stone-300">Check Out</span>
+                    </label>
+                    <label className="flex items-center gap-3 p-4 bg-stone-50 dark:bg-stone-800 rounded-2xl cursor-pointer hover:bg-stone-100 dark:hover:bg-stone-700 transition-colors">
+                      <input
+                        type="checkbox"
+                        className="w-5 h-5 rounded-lg border-stone-200 dark:border-stone-700 text-stone-900 dark:text-white focus:ring-stone-900 dark:focus:ring-stone-100"
+                        checked={newEmployee.permissions.canInventoryCheck !== false}
+                        onChange={(e) => setNewEmployee({
+                          ...newEmployee,
+                          permissions: { ...newEmployee.permissions, canInventoryCheck: e.target.checked }
+                        })}
+                      />
+                      <span className="text-sm font-bold text-stone-700 dark:text-stone-300">Inventory Check</span>
                     </label>
                   </div>
                 </div>
@@ -913,6 +925,9 @@ export function AdminDashboard({ loggedInEmployee }: AdminDashboardProps) {
                             {emp.permissions?.canCheckOut && (
                               <span className="text-[8px] bg-red-50 dark:bg-red-900/40 text-red-600 dark:text-red-400 px-1.5 py-0.5 rounded font-bold uppercase tracking-tighter">Out</span>
                             )}
+                            {emp.permissions?.canInventoryCheck !== false && (
+                              <span className="text-[8px] bg-blue-50 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 px-1.5 py-0.5 rounded font-bold uppercase tracking-tighter">Count</span>
+                            )}
                             {emp.notificationsEnabled && (
                               <span className="text-[8px] bg-amber-50 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded font-bold uppercase tracking-tighter">Alerts</span>
                             )}
@@ -933,7 +948,7 @@ export function AdminDashboard({ loggedInEmployee }: AdminDashboardProps) {
                             email: emp.email || '',
                             notificationsEnabled: emp.notificationsEnabled || false,
                             role: emp.role,
-                            permissions: emp.permissions || { canCheckIn: true, canCheckOut: true }
+                            permissions: emp.permissions || { canCheckIn: true, canCheckOut: true, canInventoryCheck: true }
                           });
                         }}
                         className="p-2 text-stone-400 dark:text-stone-500 hover:text-stone-900 dark:hover:text-white transition-colors"

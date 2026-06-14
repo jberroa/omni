@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../lib/api';
-import { Transaction, Item, Employee, Location, Stock } from '../types/inventory';
+import { Transaction, Item, Employee, Location, Stock, InventoryCheck } from '../types/inventory';
 import { startOfDay, format, subDays, eachDayOfInterval } from 'date-fns';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -11,7 +11,8 @@ import {
 } from 'recharts';
 import { 
   BarChart3, History, Search, TrendingUp, DollarSign, Package, Users, 
-  Clock, ArrowDownRight, ArrowUpRight, FileSpreadsheet, FileDown, Loader2
+  Clock, ArrowDownRight, ArrowUpRight, FileSpreadsheet, FileDown, Loader2,
+  ClipboardList, ChevronDown, ChevronRight
 } from 'lucide-react';
 
 import { useTheme } from '../contexts/ThemeContext';
@@ -25,12 +26,19 @@ export function ReportsPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
   const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
+  const [inventoryChecks, setInventoryChecks] = useState<InventoryCheck[]>([]);
   const [stocks, setStocks] = useState<Stock[]>([]);
-  const [activeSubTab, setActiveSubTab] = useState<'overview' | 'history'>('overview');
+  const [activeSubTab, setActiveSubTab] = useState<'overview' | 'history' | 'inventory'>('overview');
   const [historySearchTerm, setHistorySearchTerm] = useState('');
   const [historyTypeFilter, setHistoryTypeFilter] = useState<'ALL' | 'IN' | 'OUT'>('ALL');
   const [historyStartDate, setHistoryStartDate] = useState('');
   const [historyEndDate, setHistoryEndDate] = useState('');
+  const [inventoryLocationFilter, setInventoryLocationFilter] = useState('');
+  const [inventoryEmployeeFilter, setInventoryEmployeeFilter] = useState('');
+  const [inventoryStartDate, setInventoryStartDate] = useState('');
+  const [inventoryEndDate, setInventoryEndDate] = useState('');
+  const [inventorySearchTerm, setInventorySearchTerm] = useState('');
+  const [expandedChecks, setExpandedChecks] = useState<Set<string>>(new Set());
   const [overviewStartDate, setOverviewStartDate] = useState('');
   const [overviewEndDate, setOverviewEndDate] = useState('');
 
@@ -38,12 +46,13 @@ export function ReportsPage() {
     let cancelled = false;
     const load = async () => {
       try {
-        const [i, e, l, tx, s] = await Promise.all([
+        const [i, e, l, tx, s, checks] = await Promise.all([
           api.getItems(),
           api.getEmployees(),
           api.getLocations(),
           api.getTransactions({ limit: 8000 }),
           api.getStock(),
+          api.getInventoryChecks({ limit: 8000 }),
         ]);
         if (!cancelled) {
           setItems(i);
@@ -51,6 +60,7 @@ export function ReportsPage() {
           setLocations(l);
           setAllTransactions(tx);
           setStocks(s);
+          setInventoryChecks(checks);
         }
       } catch (err) {
         if (!cancelled) console.error(err);
@@ -96,6 +106,50 @@ export function ReportsPage() {
     return matchesSearch && matchesType && matchesDate;
   });
 
+  const filteredInventoryChecks = inventoryChecks.filter((check) => {
+    const location = locations.find((l) => l.id === check.locationId);
+    const employee = employees.find((e) => e.id === check.employeeId);
+    const date = toEventDate(check.timestamp);
+    const searchLower = inventorySearchTerm.toLowerCase();
+
+    const matchesLocation =
+      !inventoryLocationFilter || check.locationId === inventoryLocationFilter;
+    const matchesEmployee =
+      !inventoryEmployeeFilter || check.employeeId === inventoryEmployeeFilter;
+
+    const matchesSearch =
+      location?.name.toLowerCase().includes(searchLower) ||
+      employee?.name.toLowerCase().includes(searchLower) ||
+      (check.lines ?? []).some((line) =>
+        line.itemName.toLowerCase().includes(searchLower)
+      );
+
+    const matchesDate = (() => {
+      if (!inventoryStartDate && !inventoryEndDate) return true;
+      const checkDate = startOfDay(date);
+      if (inventoryStartDate) {
+        const start = startOfDay(new Date(inventoryStartDate));
+        if (checkDate < start) return false;
+      }
+      if (inventoryEndDate) {
+        const end = startOfDay(new Date(inventoryEndDate));
+        if (checkDate > end) return false;
+      }
+      return true;
+    })();
+
+    return matchesLocation && matchesEmployee && matchesSearch && matchesDate;
+  });
+
+  const toggleCheckExpanded = (checkId: string) => {
+    setExpandedChecks((prev) => {
+      const next = new Set(prev);
+      if (next.has(checkId)) next.delete(checkId);
+      else next.add(checkId);
+      return next;
+    });
+  };
+
   const handleExportExcel = () => {
     const exportData = filteredTransactions.map(tx => {
       const item = items.find(i => i.id === tx.itemId);
@@ -119,6 +173,31 @@ export function ReportsPage() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Transaction History');
     XLSX.writeFile(wb, `inventory_history_${format(new Date(), 'yyyyMMdd_HHmm')}.xlsx`);
+  };
+
+  const handleExportInventoryExcel = () => {
+    const exportData: Array<Record<string, string | number>> = [];
+    for (const check of filteredInventoryChecks) {
+      const location = locations.find((l) => l.id === check.locationId);
+      const employee = employees.find((e) => e.id === check.employeeId);
+      const date = toEventDate(check.timestamp);
+      for (const line of check.lines ?? []) {
+        exportData.push({
+          'Check ID': check.id.slice(0, 8),
+          Location: location?.name || 'Deleted Location',
+          Staff: employee?.name || 'Deleted Staff',
+          Date: format(date, 'yyyy-MM-dd'),
+          Time: format(date, 'HH:mm:ss'),
+          Item: line.itemName,
+          Quantity: line.quantity,
+        });
+      }
+    }
+
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Inventory Checks');
+    XLSX.writeFile(wb, `inventory_checks_${format(new Date(), 'yyyyMMdd_HHmm')}.xlsx`);
   };
 
   const handleExportPDF = async () => {
@@ -398,9 +477,187 @@ export function ReportsPage() {
           <History className="w-4 h-4" />
           History
         </button>
+        <button
+          onClick={() => setActiveSubTab('inventory')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all ${
+            activeSubTab === 'inventory' ? "bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 shadow-md" : "text-stone-500 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-stone-800"
+          }`}
+        >
+          <ClipboardList className="w-4 h-4" />
+          Inventory Reports
+        </button>
       </div>
 
-      {activeSubTab === 'history' ? (
+      {activeSubTab === 'inventory' ? (
+        <div className="space-y-6">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <h3 className="text-xl font-bold text-stone-900 dark:text-white">Inventory Check History</h3>
+              <button
+                onClick={handleExportInventoryExcel}
+                className="flex items-center gap-2 px-4 py-2 bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 rounded-xl text-xs font-bold hover:bg-stone-200 dark:hover:bg-stone-700 transition-all"
+                title="Download as Excel"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-green-600 dark:text-green-400" />
+                Export Excel
+              </button>
+            </div>
+            <div className="flex items-center gap-4 flex-1 md:max-w-md">
+              <div className="relative flex-1">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400 dark:text-stone-500" />
+                <input
+                  type="text"
+                  placeholder="Search by item, location, or staff..."
+                  className="w-full pl-12 pr-4 py-3 bg-white dark:bg-stone-900 border border-stone-100 dark:border-stone-800 rounded-2xl text-sm text-stone-900 dark:text-white focus:ring-2 focus:ring-stone-200 dark:focus:ring-stone-700 transition-all shadow-sm"
+                  value={inventorySearchTerm}
+                  onChange={(e) => setInventorySearchTerm(e.target.value)}
+                />
+              </div>
+              <div className="bg-stone-100 dark:bg-stone-800 px-4 py-3 rounded-2xl text-xs font-bold text-stone-600 dark:text-stone-400 whitespace-nowrap">
+                {filteredInventoryChecks.length} Checks
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-4 bg-white dark:bg-stone-900 p-6 rounded-[32px] border border-stone-100 dark:border-stone-800 shadow-sm">
+            <div className="flex items-center gap-3">
+              <label className="text-xs font-bold text-stone-400 dark:text-stone-500 uppercase tracking-widest">Location</label>
+              <select
+                className="bg-stone-50 dark:bg-stone-800 border-none rounded-xl text-xs font-bold text-stone-700 dark:text-stone-300 px-4 py-2 focus:ring-2 focus:ring-stone-200 dark:focus:ring-stone-700"
+                value={inventoryLocationFilter}
+                onChange={(e) => setInventoryLocationFilter(e.target.value)}
+              >
+                <option value="">All Locations</option>
+                {locations.map((loc) => (
+                  <option key={loc.id} value={loc.id}>{loc.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center gap-3">
+              <label className="text-xs font-bold text-stone-400 dark:text-stone-500 uppercase tracking-widest">User</label>
+              <select
+                className="bg-stone-50 dark:bg-stone-800 border-none rounded-xl text-xs font-bold text-stone-700 dark:text-stone-300 px-4 py-2 focus:ring-2 focus:ring-stone-200 dark:focus:ring-stone-700"
+                value={inventoryEmployeeFilter}
+                onChange={(e) => setInventoryEmployeeFilter(e.target.value)}
+              >
+                <option value="">All Staff</option>
+                {employees.map((emp) => (
+                  <option key={emp.id} value={emp.id}>{emp.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center gap-3">
+              <label className="text-xs font-bold text-stone-400 dark:text-stone-500 uppercase tracking-widest">From</label>
+              <input
+                type="date"
+                className="bg-stone-50 dark:bg-stone-800 border-none rounded-xl text-xs font-bold text-stone-700 dark:text-stone-300 px-4 py-2 focus:ring-2 focus:ring-stone-200 dark:focus:ring-stone-700"
+                value={inventoryStartDate}
+                onChange={(e) => setInventoryStartDate(e.target.value)}
+              />
+            </div>
+            <div className="flex items-center gap-3">
+              <label className="text-xs font-bold text-stone-400 dark:text-stone-500 uppercase tracking-widest">To</label>
+              <input
+                type="date"
+                className="bg-stone-50 dark:bg-stone-800 border-none rounded-xl text-xs font-bold text-stone-700 dark:text-stone-300 px-4 py-2 focus:ring-2 focus:ring-stone-200 dark:focus:ring-stone-700"
+                value={inventoryEndDate}
+                onChange={(e) => setInventoryEndDate(e.target.value)}
+              />
+            </div>
+            {(inventoryLocationFilter || inventoryEmployeeFilter || inventoryStartDate || inventoryEndDate) && (
+              <button
+                onClick={() => {
+                  setInventoryLocationFilter('');
+                  setInventoryEmployeeFilter('');
+                  setInventoryStartDate('');
+                  setInventoryEndDate('');
+                }}
+                className="text-xs font-bold text-stone-400 dark:text-stone-500 hover:text-stone-900 dark:hover:text-white uppercase tracking-widest ml-auto"
+              >
+                Clear Filters
+              </button>
+            )}
+          </div>
+
+          <div className="bg-white dark:bg-stone-900 rounded-[32px] border border-stone-100 dark:border-stone-800 shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-stone-50/50 dark:bg-stone-800/50">
+                    <th className="px-6 py-4 text-[10px] font-bold text-stone-400 dark:text-stone-500 uppercase tracking-widest w-10"></th>
+                    <th className="px-6 py-4 text-[10px] font-bold text-stone-400 dark:text-stone-500 uppercase tracking-widest">Location</th>
+                    <th className="px-6 py-4 text-[10px] font-bold text-stone-400 dark:text-stone-500 uppercase tracking-widest">Staff</th>
+                    <th className="px-6 py-4 text-[10px] font-bold text-stone-400 dark:text-stone-500 uppercase tracking-widest">Items</th>
+                    <th className="px-6 py-4 text-[10px] font-bold text-stone-400 dark:text-stone-500 uppercase tracking-widest">Date & Time</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-stone-100 dark:divide-stone-800">
+                  {filteredInventoryChecks.map((check) => {
+                    const location = locations.find((l) => l.id === check.locationId);
+                    const employee = employees.find((e) => e.id === check.employeeId);
+                    const date = toEventDate(check.timestamp);
+                    const isExpanded = expandedChecks.has(check.id);
+                    const lineCount = check.lines?.length ?? 0;
+
+                    return (
+                      <React.Fragment key={check.id}>
+                        <tr
+                          className="hover:bg-stone-50/50 dark:hover:bg-stone-800/50 transition-colors cursor-pointer"
+                          onClick={() => toggleCheckExpanded(check.id)}
+                        >
+                          <td className="px-6 py-4">
+                            {isExpanded ? (
+                              <ChevronDown className="w-4 h-4 text-stone-400" />
+                            ) : (
+                              <ChevronRight className="w-4 h-4 text-stone-400" />
+                            )}
+                          </td>
+                          <td className="px-6 py-4 text-sm font-medium text-stone-900 dark:text-white">
+                            {location?.name || 'Deleted Location'}
+                          </td>
+                          <td className="px-6 py-4 text-sm text-stone-600 dark:text-stone-400">
+                            {employee?.name || 'Deleted Staff'}
+                          </td>
+                          <td className="px-6 py-4 text-sm text-stone-600 dark:text-stone-400">
+                            {lineCount} items
+                          </td>
+                          <td className="px-6 py-4 text-xs text-stone-400 dark:text-stone-500 font-mono">
+                            {date.toLocaleString()}
+                          </td>
+                        </tr>
+                        {isExpanded && (check.lines ?? []).map((line) => (
+                          <tr key={line.id} className="bg-stone-50/30 dark:bg-stone-800/30">
+                            <td className="px-6 py-3"></td>
+                            <td className="px-6 py-3 text-sm text-stone-600 dark:text-stone-400" colSpan={2}>
+                              <div className="flex items-center gap-2 pl-4">
+                                <Package className="w-3.5 h-3.5 text-stone-400" />
+                                {line.itemName}
+                              </div>
+                            </td>
+                            <td className="px-6 py-3 text-sm font-bold text-blue-600 dark:text-blue-400">
+                              {line.quantity}
+                            </td>
+                            <td className="px-6 py-3"></td>
+                          </tr>
+                        ))}
+                      </React.Fragment>
+                    );
+                  })}
+                  {filteredInventoryChecks.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="px-6 py-20 text-center text-stone-400 dark:text-stone-500 font-medium">
+                        {inventorySearchTerm || inventoryLocationFilter || inventoryEmployeeFilter || inventoryStartDate || inventoryEndDate
+                          ? 'No inventory checks match your filters.'
+                          : 'No inventory checks recorded yet.'}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      ) : activeSubTab === 'history' ? (
         <div className="space-y-6">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="flex items-center gap-4">

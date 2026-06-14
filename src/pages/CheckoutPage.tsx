@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Location, Item, Employee, Stock } from '../types/inventory';
-import { QrCode, Scan, CheckCircle2, ArrowRightLeft, Package, MapPin, User, AlertCircle, Trash2 } from 'lucide-react';
+import { QrCode, Scan, CheckCircle2, ArrowRightLeft, Package, MapPin, User, AlertCircle, Trash2, ClipboardList } from 'lucide-react';
 import { Scanner } from '@yudiel/react-qr-scanner';
 import { api } from '../lib/api';
 
@@ -18,6 +18,8 @@ interface CartItem {
   expiryDate?: string;
 }
 
+type ActionMode = 'IN' | 'OUT' | 'INVENTORY_CHECK';
+
 export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
   const [step, setStep] = useState<'scan' | 'pin' | 'action' | 'success'>('scan');
   const [isManualLocation, setIsManualLocation] = useState(false);
@@ -33,20 +35,26 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
   const quantityInputRef = useRef<HTMLInputElement>(null);
   const quantityControlsRef = useRef<HTMLDivElement>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [txType, setTxType] = useState<'IN' | 'OUT'>('OUT');
+  const [actionMode, setActionMode] = useState<ActionMode>('OUT');
+  const [inventoryQuantities, setInventoryQuantities] = useState<Record<string, string>>({});
+  const [lastActionMode, setLastActionMode] = useState<ActionMode>('OUT');
   const [batchNumber, setBatchNumber] = useState('');
   const [expiryDate, setExpiryDate] = useState('');
   const [availableStocks, setAvailableStocks] = useState<Stock[]>([]);
   const [error, setError] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
 
+  const setInitialActionMode = (emp: Employee) => {
+    if (emp.permissions?.canCheckOut !== false) setActionMode('OUT');
+    else if (emp.permissions?.canCheckIn !== false) setActionMode('IN');
+    else if (emp.permissions?.canInventoryCheck !== false) setActionMode('INVENTORY_CHECK');
+  };
+
   useEffect(() => {
     if (loggedInEmployee) {
       setEmployee(loggedInEmployee);
-      // Set initial txType based on permissions
       if (loggedInEmployee.permissions) {
-        if (loggedInEmployee.permissions.canCheckOut) setTxType('OUT');
-        else if (loggedInEmployee.permissions.canCheckIn) setTxType('IN');
+        setInitialActionMode(loggedInEmployee);
       }
     }
   }, [loggedInEmployee]);
@@ -150,8 +158,7 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
       if (emp) {
         setEmployee(emp);
         if (emp.permissions) {
-          if (emp.permissions.canCheckOut) setTxType('OUT');
-          else if (emp.permissions.canCheckIn) setTxType('IN');
+          setInitialActionMode(emp);
         }
         setStep('action');
       } else {
@@ -172,7 +179,7 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
   };
 
   const buildCartLineEntries = (itemId: string, qty: number): CartLineInput[] => {
-    if (txType === 'OUT' && !batchNumber) {
+    if (actionMode === 'OUT' && !batchNumber) {
       let remainingQty = qty;
       const entries: CartLineInput[] = [];
 
@@ -342,7 +349,7 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
       await api.checkout({
         locationId: scannedLocation.id,
         employeeId: employee.id,
-        type: txType,
+        type: actionMode as 'IN' | 'OUT',
         lines: checkoutCart.map((c) => ({
           itemId: c.itemId,
           quantity: c.quantity,
@@ -352,6 +359,7 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
       });
       setCart([]);
       resetItemForm();
+      setLastActionMode(actionMode);
       setStep('success');
     } catch (err) {
       console.error("Transaction failed:", err);
@@ -360,6 +368,39 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
       setIsProcessing(false);
     }
   };
+
+  const handleInventoryCheck = async () => {
+    if (!scannedLocation || !employee) return;
+
+    setIsProcessing(true);
+    setError('');
+    try {
+      const lines = items.map((item) => ({
+        itemId: item.id,
+        quantity: parseInt(inventoryQuantities[item.id] || '0', 10) || 0,
+      }));
+
+      await api.submitInventoryCheck({
+        locationId: scannedLocation.id,
+        employeeId: employee.id,
+        lines,
+      });
+      setInventoryQuantities({});
+      setLastActionMode('INVENTORY_CHECK');
+      setStep('success');
+    } catch (err) {
+      console.error("Inventory check failed:", err);
+      setError('Inventory check failed');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const canOut = employee?.permissions?.canCheckOut !== false;
+  const canIn = employee?.permissions?.canCheckIn !== false;
+  const canInventory = employee?.permissions?.canInventoryCheck !== false;
+  const hasAnyAction = canOut || canIn || canInventory;
+  const canInventorySubmit = items.length > 0;
 
   const reset = () => {
     setStep('scan');
@@ -373,6 +414,7 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
     setQuantityInput('1');
     setQuantityError('');
     setCart([]);
+    setInventoryQuantities({});
     setError('');
   };
 
@@ -541,34 +583,106 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
               </div>
 
               <div className="space-y-6">
-                {(employee?.permissions?.canCheckIn !== false || employee?.permissions?.canCheckOut !== false) ? (
-                  <div className="flex p-2 bg-stone-100 dark:bg-stone-800 rounded-2xl">
+                {hasAnyAction ? (
+                  <div className="flex p-2 bg-stone-100 dark:bg-stone-800 rounded-2xl gap-1">
                     <button 
-                      onClick={() => setTxType('OUT')}
-                      disabled={employee?.permissions?.canCheckOut === false}
+                      onClick={() => setActionMode('OUT')}
+                      disabled={!canOut}
                       className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all ${
-                        txType === 'OUT' ? "bg-white dark:bg-stone-700 text-red-600 dark:text-red-400 shadow-sm" : "text-stone-500 dark:text-stone-400"
-                      } ${employee?.permissions?.canCheckOut === false ? "opacity-30 cursor-not-allowed" : ""}`}
+                        actionMode === 'OUT' ? "bg-white dark:bg-stone-700 text-red-600 dark:text-red-400 shadow-sm" : "text-stone-500 dark:text-stone-400"
+                      } ${!canOut ? "opacity-30 cursor-not-allowed" : ""}`}
                     >
                       Check Out
                     </button>
                     <button 
-                      onClick={() => setTxType('IN')}
-                      disabled={employee?.permissions?.canCheckIn === false}
+                      onClick={() => setActionMode('IN')}
+                      disabled={!canIn}
                       className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all ${
-                        txType === 'IN' ? "bg-white dark:bg-stone-700 text-green-600 dark:text-green-400 shadow-sm" : "text-stone-500 dark:text-stone-400"
-                      } ${employee?.permissions?.canCheckIn === false ? "opacity-30 cursor-not-allowed" : ""}`}
+                        actionMode === 'IN' ? "bg-white dark:bg-stone-700 text-green-600 dark:text-green-400 shadow-sm" : "text-stone-500 dark:text-stone-400"
+                      } ${!canIn ? "opacity-30 cursor-not-allowed" : ""}`}
                     >
                       <span className="sm:hidden">Check In</span>
                       <span className="hidden sm:inline">Check In (Restock)</span>
                     </button>
+                    <button 
+                      onClick={() => setActionMode('INVENTORY_CHECK')}
+                      disabled={!canInventory}
+                      className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all ${
+                        actionMode === 'INVENTORY_CHECK' ? "bg-white dark:bg-stone-700 text-blue-600 dark:text-blue-400 shadow-sm" : "text-stone-500 dark:text-stone-400"
+                      } ${!canInventory ? "opacity-30 cursor-not-allowed" : ""}`}
+                    >
+                      <span className="sm:hidden">Count</span>
+                      <span className="hidden sm:inline">Inventory Check</span>
+                    </button>
                   </div>
                 ) : (
                   <div className="p-6 bg-red-50 dark:bg-red-900/40 text-red-600 dark:text-red-400 rounded-[32px] border border-red-100 dark:border-red-900/50 text-sm font-bold text-center">
-                    You do not have permission to check items in or out.
+                    You do not have permission to perform stock actions.
                   </div>
                 )}
 
+                {actionMode === 'INVENTORY_CHECK' && canInventory ? (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2 px-1">
+                      <ClipboardList className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                      <p className="text-xs font-bold text-stone-400 dark:text-stone-500 uppercase tracking-widest">
+                        Enter current quantity on hand for each item
+                      </p>
+                    </div>
+                    <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1 custom-scrollbar">
+                      {items.map((item) => (
+                        <div
+                          key={item.id}
+                          className="flex items-center gap-3 p-3 sm:p-4 bg-stone-50 dark:bg-stone-800 rounded-2xl border border-stone-100 dark:border-stone-700 min-w-0"
+                        >
+                          <div className="w-10 h-10 shrink-0 bg-white dark:bg-stone-900 rounded-xl overflow-hidden flex items-center justify-center">
+                            {item.imageUrl ? (
+                              <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                            ) : (
+                              <Package className="w-4 h-4 text-stone-300 dark:text-stone-600" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-bold text-stone-900 dark:text-white truncate">{item.name}</p>
+                            <p className="text-[10px] text-stone-400 dark:text-stone-500 font-mono">{item.sku}</p>
+                          </div>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            placeholder="0"
+                            value={inventoryQuantities[item.id] ?? ''}
+                            onChange={(e) => {
+                              const raw = e.target.value;
+                              if (raw !== '' && !/^\d+$/.test(raw)) return;
+                              setInventoryQuantities((prev) => ({ ...prev, [item.id]: raw }));
+                            }}
+                            className="w-20 h-11 shrink-0 bg-white dark:bg-stone-900 rounded-xl text-center text-base font-bold text-stone-900 dark:text-white shadow-sm focus:ring-2 focus:ring-blue-200 dark:focus:ring-blue-800 border-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          />
+                        </div>
+                      ))}
+                      {items.length === 0 && (
+                        <p className="text-center text-sm text-stone-400 dark:text-stone-500 py-8">No items in catalog.</p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleInventoryCheck}
+                      disabled={!canInventorySubmit || isProcessing}
+                      className="w-full bg-blue-600 dark:bg-blue-500 text-white py-4 sm:py-5 rounded-2xl sm:rounded-[24px] font-bold text-base sm:text-lg hover:bg-blue-700 dark:hover:bg-blue-400 transition-all shadow-xl shadow-blue-200/50 dark:shadow-none disabled:opacity-50 flex items-center justify-center gap-2 touch-manipulation min-h-[52px]"
+                    >
+                      {isProcessing ? (
+                        <>
+                          <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                          Submitting...
+                        </>
+                      ) : (
+                        `Submit Inventory Check (${items.length} items)`
+                      )}
+                    </button>
+                  </div>
+                ) : hasAnyAction && (canOut || canIn) ? (
+                <>
                 <div className="space-y-4 bg-stone-50 dark:bg-stone-800 p-4 sm:p-6 rounded-2xl sm:rounded-[32px] border border-stone-100 dark:border-stone-700 min-w-0">
                   <div className="space-y-2">
                     <label className="text-xs font-bold text-stone-400 dark:text-stone-500 uppercase tracking-widest ml-1 sm:ml-4">Add Item</label>
@@ -589,7 +703,7 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                         className="flex-1 min-w-0 p-3 sm:p-4 text-base bg-white dark:bg-stone-900 border-none rounded-2xl text-stone-900 dark:text-white font-medium focus:ring-2 focus:ring-stone-200 dark:focus:ring-stone-700 shadow-sm"
                         value={selectedItem}
                         onChange={(e) => setSelectedItem(e.target.value)}
-                        disabled={employee?.permissions?.canCheckIn === false && employee?.permissions?.canCheckOut === false}
+                        disabled={!canIn && !canOut}
                       >
                         <option value="">Choose an item...</option>
                         {items.map(i => (
@@ -608,7 +722,7 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                         <button 
                           type="button"
                           onClick={() => setQuantityValue(quantity - 1)}
-                          disabled={employee?.permissions?.canCheckIn === false && employee?.permissions?.canCheckOut === false}
+                          disabled={!canIn && !canOut}
                           className="w-11 h-11 sm:w-12 sm:h-12 shrink-0 bg-white dark:bg-stone-900 rounded-xl flex items-center justify-center text-xl font-bold text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-700 shadow-sm disabled:opacity-50 touch-manipulation"
                           aria-label="Decrease quantity"
                         >
@@ -633,7 +747,7 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                             }
                           }}
                           onBlur={handleQuantityBlur}
-                          disabled={employee?.permissions?.canCheckIn === false && employee?.permissions?.canCheckOut === false}
+                          disabled={!canIn && !canOut}
                           className={`flex-1 min-w-0 h-14 sm:h-12 bg-white dark:bg-stone-900 rounded-xl text-center text-lg sm:text-base font-bold text-stone-900 dark:text-white shadow-sm focus:ring-2 border-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
                             quantityError
                               ? 'ring-2 ring-red-300 dark:ring-red-800'
@@ -643,7 +757,7 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                         <button 
                           type="button"
                           onClick={() => setQuantityValue(quantity + 1)}
-                          disabled={employee?.permissions?.canCheckIn === false && employee?.permissions?.canCheckOut === false}
+                          disabled={!canIn && !canOut}
                           className="w-11 h-11 sm:w-12 sm:h-12 shrink-0 bg-white dark:bg-stone-900 rounded-xl flex items-center justify-center text-xl font-bold text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-700 shadow-sm disabled:opacity-50 touch-manipulation"
                           aria-label="Increase quantity"
                         >
@@ -653,7 +767,7 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                       <button 
                         type="button"
                         onClick={handleAddToCart}
-                        disabled={!selectedItem || (employee?.permissions?.canCheckIn === false && employee?.permissions?.canCheckOut === false)}
+                        disabled={!selectedItem || (!canIn && !canOut)}
                         className="w-full sm:w-auto sm:shrink-0 bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 px-6 sm:px-8 h-12 rounded-xl font-bold text-sm hover:bg-stone-800 dark:hover:bg-white transition-all disabled:opacity-50 shadow-md touch-manipulation"
                       >
                         Add to List
@@ -664,7 +778,7 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                     )}
                   </div>
 
-                  {txType === 'IN' && (
+                  {actionMode === 'IN' && (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
                       <div className="space-y-1">
                         <label className="text-[10px] font-bold text-stone-400 dark:text-stone-500 uppercase tracking-widest ml-2">Batch Number</label>
@@ -688,7 +802,7 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                     </div>
                   )}
 
-                  {txType === 'OUT' && availableStocks.length > 0 && (
+                  {actionMode === 'OUT' && availableStocks.length > 0 && (
                     <div className="space-y-1 pt-2">
                       <label className="text-[10px] font-bold text-stone-400 dark:text-stone-500 uppercase tracking-widest ml-2">Select Batch</label>
                       <select 
@@ -716,7 +830,7 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                 {cart.length > 0 && (
                   <div className="space-y-3">
                     <div className="flex items-center justify-between px-4">
-                      <h4 className="text-xs font-bold text-stone-400 dark:text-stone-500 uppercase tracking-widest">Items to {txType === 'IN' ? 'Check In' : 'Check Out'}</h4>
+                      <h4 className="text-xs font-bold text-stone-400 dark:text-stone-500 uppercase tracking-widest">Items to {actionMode === 'IN' ? 'Check In' : 'Check Out'}</h4>
                       <span className="text-xs font-bold text-stone-900 dark:text-white bg-stone-100 dark:bg-stone-800 px-2 py-1 rounded-lg">{cart.length}</span>
                     </div>
                     <div className="space-y-2 max-h-[200px] overflow-y-auto pr-2 custom-scrollbar">
@@ -772,7 +886,7 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                       Processing...
                     </>
                   ) : (
-                    `Confirm ${txType === 'IN' ? 'Check In' : 'Check Out'} (${cart.length + (pendingQuantityValid ? 1 : 0)} items)`
+                    `Confirm ${actionMode === 'IN' ? 'Check In' : 'Check Out'} (${cart.length + (pendingQuantityValid ? 1 : 0)} items)`
                   )}
                 </button>
                 {!canCheckout && (
@@ -780,6 +894,8 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                     Select an item and enter a quantity to check out
                   </p>
                 )}
+                </>
+                ) : null}
               </div>
             </div>
           )}
@@ -791,7 +907,11 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
               </div>
               <div className="space-y-2">
                 <h3 className="text-3xl font-bold text-stone-900 dark:text-white">Success!</h3>
-                <p className="text-stone-500 dark:text-stone-400">Inventory has been updated successfully.</p>
+                <p className="text-stone-500 dark:text-stone-400">
+                  {lastActionMode === 'INVENTORY_CHECK'
+                    ? 'Inventory check has been recorded successfully.'
+                    : 'Inventory has been updated successfully.'}
+                </p>
               </div>
               <button 
                 onClick={reset}
