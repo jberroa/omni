@@ -1,6 +1,7 @@
 import type {
   Employee,
   InventoryCheck,
+  InventoryLevel,
   Item,
   Location,
   Stock,
@@ -164,9 +165,40 @@ export const api = {
     return reqJson<Stock[]>(`/api/stock${suffix}`, undefined, OperationType.LIST, "stock");
   },
 
-  getTransactions(params?: { itemId?: string; limit?: number }): Promise<Transaction[]> {
+  getInventoryLevels(params?: {
+    itemId?: string;
+    locationIds?: string[];
+    startDate?: string;
+    endDate?: string;
+  }): Promise<InventoryLevel[]> {
     const q = new URLSearchParams();
     if (params?.itemId) q.set("itemId", params.itemId);
+    if (params?.locationIds?.length) {
+      q.set("locationIds", params.locationIds.join(","));
+    }
+    if (params?.startDate) q.set("startDate", params.startDate);
+    if (params?.endDate) q.set("endDate", params.endDate);
+    const suffix = q.toString() ? `?${q}` : "";
+    return reqJson<InventoryLevel[]>(
+      `/api/inventory-levels${suffix}`,
+      undefined,
+      OperationType.LIST,
+      "inventory-levels"
+    );
+  },
+
+  getTransactions(params?: {
+    itemId?: string;
+    locationId?: string;
+    startDate?: string;
+    endDate?: string;
+    limit?: number;
+  }): Promise<Transaction[]> {
+    const q = new URLSearchParams();
+    if (params?.itemId) q.set("itemId", params.itemId);
+    if (params?.locationId) q.set("locationId", params.locationId);
+    if (params?.startDate) q.set("startDate", params.startDate);
+    if (params?.endDate) q.set("endDate", params.endDate);
     if (params?.limit != null) q.set("limit", String(params.limit));
     const suffix = q.toString() ? `?${q}` : "";
     return reqJson<Transaction[]>(`/api/transactions${suffix}`, undefined, OperationType.LIST, "transactions");

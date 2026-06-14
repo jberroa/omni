@@ -2,6 +2,7 @@ import type {
   Employee,
   InventoryCheck,
   InventoryCheckLine,
+  InventoryLevel,
   Item,
   Location,
   Stock,
@@ -54,6 +55,22 @@ export function mapEmployeeRow(row: Record<string, unknown>): Employee {
     email: row.email ? String(row.email) : undefined,
     notificationsEnabled: Boolean(row.notifications_enabled),
     permissions,
+  };
+}
+
+export function mapInventoryLevelRow(row: Record<string, unknown>): InventoryLevel {
+  const txType = row.last_transaction_type;
+  return {
+    itemId: String(row.item_id),
+    itemName: String(row.item_name ?? ""),
+    locationId: String(row.location_id),
+    locationName: String(row.location_name ?? ""),
+    quantity: Number(row.quantity ?? 0),
+    lastTransactionDate: row.last_transaction_date
+      ? String(row.last_transaction_date)
+      : null,
+    lastTransactionType:
+      txType === "IN" ? "IN" : txType === "OUT" ? "OUT" : null,
   };
 }
 

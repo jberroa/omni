@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { api, handleApiError, OperationType } from '../lib/api';
-import { Item, Employee, Transaction, Location, Stock } from '../types/inventory';
-import { Plus, Search, FileSpreadsheet, Package, Users, Trash2, Edit2, X, History, AlertTriangle, FileText, Clock, ArrowDownRight, ArrowUpRight, Sparkles, ShieldCheck } from 'lucide-react';
+import { Item, Employee, Transaction, Location, Stock, InventoryLevel } from '../types/inventory';
+import { Plus, Search, FileSpreadsheet, Package, Users, Trash2, Edit2, X, History, AlertTriangle, FileText, Clock, ArrowDownRight, ArrowUpRight, Sparkles, ShieldCheck, MapPin, Filter } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { GoogleGenAI, Type } from "@google/genai";
+import { format } from 'date-fns';
 
 const HOUSEKEEPING_CATEGORIES = [
   "Cleaning Chemicals",
@@ -30,7 +31,7 @@ export function AdminDashboard({ loggedInEmployee }: AdminDashboardProps) {
   const [locations, setLocations] = useState<Location[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isUploading, setIsUploading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'items' | 'employees'>('items');
+  const [activeTab, setActiveTab] = useState<'inventory' | 'items' | 'employees'>('inventory');
   const [editingEmployeeId, setEditingEmployeeId] = useState<string | null>(null);
   const [newEmployee, setNewEmployee] = useState({ 
     name: '', 
@@ -56,6 +57,13 @@ export function AdminDashboard({ loggedInEmployee }: AdminDashboardProps) {
   const [historyTypeFilter, setHistoryTypeFilter] = useState<'ALL' | 'IN' | 'OUT'>('ALL');
   const [historyStartDate, setHistoryStartDate] = useState('');
   const [historyEndDate, setHistoryEndDate] = useState('');
+  const [inventoryLevels, setInventoryLevels] = useState<InventoryLevel[]>([]);
+  const [inventorySearchTerm, setInventorySearchTerm] = useState('');
+  const [inventoryItemFilter, setInventoryItemFilter] = useState('');
+  const [inventoryStartDate, setInventoryStartDate] = useState('');
+  const [inventoryEndDate, setInventoryEndDate] = useState('');
+  const [selectedLocationIds, setSelectedLocationIds] = useState<string[]>([]);
+  const [allLocationsSelected, setAllLocationsSelected] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -84,6 +92,35 @@ export function AdminDashboard({ loggedInEmployee }: AdminDashboardProps) {
       clearInterval(t);
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadLevels = async () => {
+      try {
+        const levels = await api.getInventoryLevels({
+          itemId: inventoryItemFilter || undefined,
+          locationIds: allLocationsSelected ? undefined : selectedLocationIds,
+          startDate: inventoryStartDate || undefined,
+          endDate: inventoryEndDate || undefined,
+        });
+        if (!cancelled) setInventoryLevels(levels);
+      } catch (err) {
+        if (!cancelled) console.error(err);
+      }
+    };
+    loadLevels();
+    const t = setInterval(loadLevels, 4000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [
+    inventoryItemFilter,
+    inventoryStartDate,
+    inventoryEndDate,
+    selectedLocationIds,
+    allLocationsSelected,
+  ]);
 
   useEffect(() => {
     if (!selectedItemForHistory) {
@@ -369,7 +406,52 @@ export function AdminDashboard({ loggedInEmployee }: AdminDashboardProps) {
       .reduce((acc, curr) => acc + curr.quantity, 0);
   };
 
-  const filteredItems = items.filter(item => 
+  const toggleLocationSelection = (locationId: string) => {
+    setAllLocationsSelected(false);
+    setSelectedLocationIds((prev) =>
+      prev.includes(locationId)
+        ? prev.filter((id) => id !== locationId)
+        : [...prev, locationId]
+    );
+  };
+
+  const handleSelectAllLocations = () => {
+    setAllLocationsSelected(true);
+    setSelectedLocationIds([]);
+  };
+
+  const filteredInventoryLevels = inventoryLevels.filter((row) => {
+    if (!allLocationsSelected && selectedLocationIds.length === 0) return false;
+    const searchLower = inventorySearchTerm.toLowerCase();
+    if (!searchLower) return true;
+    return (
+      row.itemName.toLowerCase().includes(searchLower) ||
+      row.locationName.toLowerCase().includes(searchLower)
+    );
+  });
+
+  const handleExportInventoryLevels = () => {
+    const data = filteredInventoryLevels.map((row) => ({
+      Item: row.itemName,
+      Location: row.locationName,
+      'Quantity On Hand': row.quantity,
+      'Last Transaction Date': row.lastTransactionDate
+        ? format(toEventDate(row.lastTransactionDate), 'yyyy-MM-dd HH:mm')
+        : '',
+      'Last Transaction Type':
+        row.lastTransactionType === 'IN'
+          ? 'Check In'
+          : row.lastTransactionType === 'OUT'
+            ? 'Check Out'
+            : '',
+    }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Location Inventory');
+    XLSX.writeFile(wb, `location_inventory_${format(new Date(), 'yyyyMMdd_HHmm')}.xlsx`);
+  };
+
+  const filteredItems = items.filter(item =>
     item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     item.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
     item.type.toLowerCase().includes(searchTerm.toLowerCase())
@@ -406,7 +488,15 @@ export function AdminDashboard({ loggedInEmployee }: AdminDashboardProps) {
           </p>
         </div>
         
-        <div className="flex p-1 bg-stone-100 dark:bg-stone-800 rounded-2xl self-start">
+        <div className="flex p-1 bg-stone-100 dark:bg-stone-800 rounded-2xl self-start flex-wrap">
+          <button
+            onClick={() => setActiveTab('inventory')}
+            className={`px-6 py-2 rounded-xl text-sm font-bold transition-all ${
+              activeTab === 'inventory' ? "bg-white dark:bg-stone-700 text-stone-900 dark:text-white shadow-sm" : "text-stone-500 dark:text-stone-400"
+            }`}
+          >
+            Location Inventory
+          </button>
           <button 
             onClick={() => setActiveTab('items')}
             className={`px-6 py-2 rounded-xl text-sm font-bold transition-all ${
@@ -426,7 +516,226 @@ export function AdminDashboard({ loggedInEmployee }: AdminDashboardProps) {
         </div>
       </header>
 
-      {activeTab === 'items' ? (
+      {activeTab === 'inventory' ? (
+        <>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h3 className="text-xl font-bold text-stone-900 dark:text-white">Location Inventory</h3>
+              <p className="text-sm text-stone-500 dark:text-stone-400 mt-1">
+                Real-time stock levels by location, updated from check-in and check-out activity.
+              </p>
+            </div>
+            <button
+              onClick={handleExportInventoryLevels}
+              disabled={filteredInventoryLevels.length === 0}
+              className="flex items-center gap-2 bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 px-6 py-3 rounded-2xl text-sm font-semibold text-stone-700 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-800 transition-all shadow-sm disabled:opacity-50"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-green-600" />
+              Export Excel
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="bg-white dark:bg-stone-900 p-6 rounded-[24px] border border-stone-100 dark:border-stone-800 shadow-sm">
+              <p className="text-xs font-bold text-stone-400 dark:text-stone-500 uppercase tracking-widest mb-1">Locations</p>
+              <p className="text-3xl font-light text-stone-900 dark:text-white">{locations.length}</p>
+            </div>
+            <div className="bg-white dark:bg-stone-900 p-6 rounded-[24px] border border-stone-100 dark:border-stone-800 shadow-sm">
+              <p className="text-xs font-bold text-stone-400 dark:text-stone-500 uppercase tracking-widest mb-1">Stock Records</p>
+              <p className="text-3xl font-light text-stone-900 dark:text-white">{filteredInventoryLevels.length}</p>
+            </div>
+            <div className="bg-white dark:bg-stone-900 p-6 rounded-[24px] border border-stone-100 dark:border-stone-800 shadow-sm">
+              <p className="text-xs font-bold text-stone-400 dark:text-stone-500 uppercase tracking-widest mb-1">Total Units On Hand</p>
+              <p className="text-3xl font-light text-stone-900 dark:text-white">
+                {filteredInventoryLevels.reduce((sum, row) => sum + row.quantity, 0)}
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-white dark:bg-stone-900 rounded-[32px] border border-stone-100 dark:border-stone-800 shadow-sm overflow-hidden">
+            <div className="p-6 border-b border-stone-100 dark:border-stone-800 space-y-4">
+              <div className="flex flex-col lg:flex-row gap-4">
+                <div className="relative flex-1">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
+                  <input
+                    type="text"
+                    placeholder="Search by item or location..."
+                    className="w-full pl-12 pr-4 py-3 bg-stone-50 dark:bg-stone-800 border-none rounded-2xl text-sm text-stone-900 dark:text-white focus:ring-2 focus:ring-stone-200 dark:focus:ring-stone-700 transition-all"
+                    value={inventorySearchTerm}
+                    onChange={(e) => setInventorySearchTerm(e.target.value)}
+                  />
+                </div>
+                <select
+                  className="px-4 py-3 bg-stone-50 dark:bg-stone-800 border-none rounded-2xl text-sm font-medium text-stone-900 dark:text-white focus:ring-2 focus:ring-stone-200 dark:focus:ring-stone-700"
+                  value={inventoryItemFilter}
+                  onChange={(e) => setInventoryItemFilter(e.target.value)}
+                >
+                  <option value="">All Items</option>
+                  {items.map((item) => (
+                    <option key={item.id} value={item.id}>{item.name}</option>
+                  ))}
+                </select>
+                <input
+                  type="date"
+                  className="px-4 py-3 bg-stone-50 dark:bg-stone-800 border-none rounded-2xl text-sm text-stone-900 dark:text-white focus:ring-2 focus:ring-stone-200 dark:focus:ring-stone-700"
+                  value={inventoryStartDate}
+                  onChange={(e) => setInventoryStartDate(e.target.value)}
+                  title="Last transaction from"
+                />
+                <input
+                  type="date"
+                  className="px-4 py-3 bg-stone-50 dark:bg-stone-800 border-none rounded-2xl text-sm text-stone-900 dark:text-white focus:ring-2 focus:ring-stone-200 dark:focus:ring-stone-700"
+                  value={inventoryEndDate}
+                  onChange={(e) => setInventoryEndDate(e.target.value)}
+                  title="Last transaction to"
+                />
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Filter className="w-4 h-4 text-stone-400" />
+                  <span className="text-xs font-bold text-stone-400 dark:text-stone-500 uppercase tracking-widest">
+                    Filter by Location
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={handleSelectAllLocations}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                      allLocationsSelected
+                        ? 'bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900'
+                        : 'bg-stone-50 dark:bg-stone-800 text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-700'
+                    }`}
+                  >
+                    All Locations
+                  </button>
+                  {locations.map((loc) => {
+                    const isSelected =
+                      !allLocationsSelected && selectedLocationIds.includes(loc.id);
+                    return (
+                      <button
+                        key={loc.id}
+                        onClick={() => toggleLocationSelection(loc.id)}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                          isSelected
+                            ? 'bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900'
+                            : 'bg-stone-50 dark:bg-stone-800 text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-700'
+                        }`}
+                      >
+                        <MapPin className="w-3 h-3" />
+                        {loc.name}
+                        {loc.locationNumber ? ` (#${loc.locationNumber})` : ''}
+                      </button>
+                    );
+                  })}
+                </div>
+                {!allLocationsSelected && selectedLocationIds.length > 0 && (
+                  <p className="text-xs text-stone-500 dark:text-stone-400">
+                    Showing {selectedLocationIds.length} selected location{selectedLocationIds.length !== 1 ? 's' : ''}
+                  </p>
+                )}
+                {!allLocationsSelected && selectedLocationIds.length === 0 && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">
+                    Select one or more locations, or choose All Locations.
+                  </p>
+                )}
+                {(inventoryItemFilter || inventoryStartDate || inventoryEndDate || (!allLocationsSelected && selectedLocationIds.length > 0)) && (
+                  <button
+                    onClick={() => {
+                      setInventoryItemFilter('');
+                      setInventoryStartDate('');
+                      setInventoryEndDate('');
+                      handleSelectAllLocations();
+                    }}
+                    className="text-xs font-bold text-stone-500 dark:text-stone-400 hover:text-stone-900 dark:hover:text-white uppercase tracking-widest"
+                  >
+                    Clear Filters
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-stone-50/50 dark:bg-stone-800/50">
+                    <th className="px-6 py-4 text-[10px] font-bold text-stone-400 dark:text-stone-500 uppercase tracking-widest">Item Name</th>
+                    <th className="px-6 py-4 text-[10px] font-bold text-stone-400 dark:text-stone-500 uppercase tracking-widest">Location</th>
+                    <th className="px-6 py-4 text-[10px] font-bold text-stone-400 dark:text-stone-500 uppercase tracking-widest">Qty On Hand</th>
+                    <th className="px-6 py-4 text-[10px] font-bold text-stone-400 dark:text-stone-500 uppercase tracking-widest">Last Transaction</th>
+                    <th className="px-6 py-4 text-[10px] font-bold text-stone-400 dark:text-stone-500 uppercase tracking-widest">Type</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-stone-100 dark:divide-stone-800">
+                  {filteredInventoryLevels.map((row) => (
+                    <tr key={`${row.itemId}-${row.locationId}`} className="hover:bg-stone-50/50 dark:hover:bg-stone-800/50 transition-colors">
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-stone-100 dark:bg-stone-800 rounded-xl flex items-center justify-center">
+                            <Package className="w-5 h-5 text-stone-400 dark:text-stone-500" />
+                          </div>
+                          <span className="font-medium text-stone-900 dark:text-white">{row.itemName}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2">
+                          <MapPin className="w-4 h-4 text-stone-400" />
+                          <span className="text-sm font-medium text-stone-700 dark:text-stone-300">{row.locationName}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`text-sm font-bold ${
+                          row.quantity <= 0
+                            ? 'text-red-500'
+                            : 'text-stone-900 dark:text-white'
+                        }`}>
+                          {row.quantity}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        {row.lastTransactionDate ? (
+                          <div className="flex items-center gap-2 text-sm text-stone-600 dark:text-stone-400">
+                            <Clock className="w-4 h-4 text-stone-400" />
+                            {format(toEventDate(row.lastTransactionDate), 'MMM d, yyyy h:mm a')}
+                          </div>
+                        ) : (
+                          <span className="text-sm text-stone-400">—</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4">
+                        {row.lastTransactionType === 'IN' ? (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400">
+                            <ArrowDownRight className="w-3 h-3" />
+                            Check In
+                          </span>
+                        ) : row.lastTransactionType === 'OUT' ? (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400">
+                            <ArrowUpRight className="w-3 h-3" />
+                            Check Out
+                          </span>
+                        ) : (
+                          <span className="text-sm text-stone-400">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {filteredInventoryLevels.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="px-6 py-16 text-center text-stone-500 dark:text-stone-400">
+                        {!allLocationsSelected && selectedLocationIds.length === 0
+                          ? 'Select at least one location to view inventory.'
+                          : inventorySearchTerm || inventoryItemFilter || inventoryStartDate || inventoryEndDate
+                            ? 'No inventory records match your filters.'
+                            : 'No inventory at any location yet. Stock will appear after check-ins.'}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      ) : activeTab === 'items' ? (
         <>
           <div className="flex items-center justify-between">
             <h3 className="text-xl font-bold text-stone-900 dark:text-white">Product Catalog</h3>

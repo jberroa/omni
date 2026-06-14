@@ -26,6 +26,16 @@ export interface Stock {
   expiryDate?: string;
 }
 
+export interface InventoryLevel {
+  itemId: string;
+  itemName: string;
+  locationId: string;
+  locationName: string;
+  quantity: number;
+  lastTransactionDate: string | null;
+  lastTransactionType: 'IN' | 'OUT' | null;
+}
+
 export interface Transaction {
   id: string;
   itemId: string;

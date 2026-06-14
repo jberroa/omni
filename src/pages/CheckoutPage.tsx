@@ -37,12 +37,21 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [actionMode, setActionMode] = useState<ActionMode>('OUT');
   const [inventoryQuantities, setInventoryQuantities] = useState<Record<string, string>>({});
+  const [systemQuantities, setSystemQuantities] = useState<Record<string, number>>({});
+  const [isLoadingInventoryStock, setIsLoadingInventoryStock] = useState(false);
   const [lastActionMode, setLastActionMode] = useState<ActionMode>('OUT');
   const [batchNumber, setBatchNumber] = useState('');
   const [expiryDate, setExpiryDate] = useState('');
   const [availableStocks, setAvailableStocks] = useState<Stock[]>([]);
   const [error, setError] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [locationStockSummary, setLocationStockSummary] = useState<
+    Record<string, { items: number; units: number }>
+  >({});
+  const [adminLocationSearch, setAdminLocationSearch] = useState('');
+
+  const isAdmin = employee?.role === 'admin';
 
   const setInitialActionMode = (emp: Employee) => {
     if (emp.permissions?.canCheckOut !== false) setActionMode('OUT');
@@ -72,6 +81,51 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
   }, []);
 
   useEffect(() => {
+    if (!isAdmin || step !== 'scan') return;
+
+    let cancelled = false;
+    const loadAdminLocations = async () => {
+      try {
+        const [locs, levels] = await Promise.all([
+          api.getLocations(),
+          api.getInventoryLevels(),
+        ]);
+        if (cancelled) return;
+
+        setLocations(locs);
+        const summary: Record<string, { items: number; units: number }> = {};
+        for (const row of levels) {
+          if (!summary[row.locationId]) {
+            summary[row.locationId] = { items: 0, units: 0 };
+          }
+          if (row.quantity > 0) {
+            summary[row.locationId].items += 1;
+          }
+          summary[row.locationId].units += row.quantity;
+        }
+        setLocationStockSummary(summary);
+      } catch (err) {
+        if (!cancelled) console.error("Error loading locations for admin:", err);
+      }
+    };
+
+    loadAdminLocations();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin, step]);
+
+  const selectLocation = (loc: Location) => {
+    setScannedLocation(loc);
+    setError('');
+    if (employee) {
+      setStep('action');
+    } else {
+      setStep('pin');
+    }
+  };
+
+  useEffect(() => {
     if (selectedItem && scannedLocation) {
       api
         .getStock({ itemId: selectedItem, locationId: scannedLocation.id })
@@ -91,6 +145,62 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
       setAvailableStocks([]);
     }
   }, [selectedItem, scannedLocation]);
+
+  useEffect(() => {
+    if (actionMode !== 'INVENTORY_CHECK' || !scannedLocation || step !== 'action') {
+      return;
+    }
+
+    let cancelled = false;
+    setIsLoadingInventoryStock(true);
+
+    const loadLocationStock = async () => {
+      try {
+        const levels = await api.getInventoryLevels({
+          locationIds: [scannedLocation.id],
+        });
+        if (cancelled) return;
+
+        const byItem: Record<string, number> = {};
+        for (const row of levels) {
+          byItem[row.itemId] = row.quantity;
+        }
+
+        setSystemQuantities(byItem);
+
+        const quantities: Record<string, string> = {};
+        for (const item of items) {
+          quantities[item.id] = String(byItem[item.id] ?? 0);
+        }
+        setInventoryQuantities(quantities);
+      } catch (err) {
+        console.error("Error loading location stock for inventory check:", err);
+        if (!cancelled) {
+          setSystemQuantities({});
+          setInventoryQuantities({});
+        }
+      } finally {
+        if (!cancelled) setIsLoadingInventoryStock(false);
+      }
+    };
+
+    if (items.length > 0) {
+      loadLocationStock();
+      const t = setInterval(loadLocationStock, 4000);
+      return () => {
+        cancelled = true;
+        clearInterval(t);
+      };
+    } else {
+      setSystemQuantities({});
+      setInventoryQuantities({});
+      setIsLoadingInventoryStock(false);
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [actionMode, scannedLocation?.id, step, items]);
 
   useEffect(() => {
     if (step !== 'pin') return;
@@ -146,7 +256,11 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
         }
     } catch (err) {
       console.error("Error finding location:", err);
-      setError('Location ID not found');
+      const message =
+        err instanceof Error && err.message.includes("Multiple locations")
+          ? "Multiple locations share that name. Use the location number (e.g. #4121)."
+          : 'Location not found. Use the location number from the Locations page, or scan the QR code.';
+      setError(message);
     }
   };
 
@@ -280,7 +394,7 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
 
   const validateQuantity = (options?: { syncState?: boolean }): number | null => {
     const result = parseQuantityRaw(getQuantityRaw());
-    if (!result.ok) {
+    if (result.ok === false) {
       setQuantityError(result.message);
       return null;
     }
@@ -402,6 +516,16 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
   const hasAnyAction = canOut || canIn || canInventory;
   const canInventorySubmit = items.length > 0;
 
+  const filteredAdminLocations = locations.filter((loc) => {
+    const q = adminLocationSearch.toLowerCase().trim();
+    if (!q) return true;
+    return (
+      loc.name.toLowerCase().includes(q) ||
+      loc.locationNumber.toLowerCase().includes(q) ||
+      loc.id.toLowerCase().includes(q)
+    );
+  });
+
   const reset = () => {
     setStep('scan');
     setIsManualLocation(false);
@@ -415,6 +539,7 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
     setQuantityError('');
     setCart([]);
     setInventoryQuantities({});
+    setSystemQuantities({});
     setError('');
   };
 
@@ -456,6 +581,59 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
 
           {step === 'scan' && (
             <div className="w-full space-y-8 text-center">
+              {isAdmin && !isManualLocation && (
+                <div className="text-left space-y-3 max-w-lg mx-auto w-full">
+                  <div className="flex items-center gap-2">
+                    <MapPin className="w-4 h-4 text-stone-400" />
+                    <p className="text-xs font-bold text-stone-400 dark:text-stone-500 uppercase tracking-widest">
+                      Select location (admin)
+                    </p>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Search by name or location number..."
+                    value={adminLocationSearch}
+                    onChange={(e) => setAdminLocationSearch(e.target.value)}
+                    className="w-full px-4 py-3 bg-stone-50 dark:bg-stone-800 border-none rounded-2xl text-sm text-stone-900 dark:text-white focus:ring-2 focus:ring-stone-200 dark:focus:ring-stone-700"
+                  />
+                  <div className="max-h-48 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                    {filteredAdminLocations.map((loc) => {
+                      const summary = locationStockSummary[loc.id];
+                      return (
+                        <button
+                          key={loc.id}
+                          type="button"
+                          onClick={() => selectLocation(loc)}
+                          className="w-full flex items-center justify-between gap-3 p-3 bg-stone-50 dark:bg-stone-800 rounded-2xl border border-stone-100 dark:border-stone-700 hover:bg-stone-100 dark:hover:bg-stone-700 transition-all text-left"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-sm font-bold text-stone-900 dark:text-white truncate">
+                              {loc.name || 'Unnamed location'}
+                            </p>
+                            <p className="text-[10px] text-stone-500 dark:text-stone-400">
+                              #{loc.locationNumber || '—'}
+                            </p>
+                          </div>
+                          <span className={`text-[10px] font-bold uppercase tracking-wider shrink-0 px-2 py-1 rounded-lg ${
+                            summary && summary.units > 0
+                              ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400'
+                              : 'bg-stone-200 dark:bg-stone-700 text-stone-500 dark:text-stone-400'
+                          }`}>
+                            {summary && summary.units > 0
+                              ? `${summary.units} units`
+                              : 'No stock'}
+                          </span>
+                        </button>
+                      );
+                    })}
+                    {filteredAdminLocations.length === 0 && (
+                      <p className="text-sm text-stone-400 text-center py-4">No locations match your search.</p>
+                    )}
+                  </div>
+                  <p className="text-center text-[10px] font-bold text-stone-400 uppercase tracking-widest">or scan QR below</p>
+                </div>
+              )}
+
               {!isManualLocation ? (
                 <>
                   <div className="relative w-full aspect-square max-w-[300px] mx-auto rounded-[32px] overflow-hidden border-4 border-stone-900 dark:border-stone-100">
@@ -487,7 +665,9 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                 <form onSubmit={handleManualLocationSubmit} className="space-y-8 max-w-xs mx-auto">
                   <div className="space-y-2">
                     <h3 className="text-2xl font-bold text-stone-900 dark:text-white">Manual Entry</h3>
-                    <p className="text-stone-500 dark:text-stone-400 text-sm">Enter the Location ID number (e.g., 101)</p>
+                    <p className="text-stone-500 dark:text-stone-400 text-sm">
+                      Enter the <strong>location number</strong> (e.g. 4121) from the Locations page, or paste the location ID from a QR code.
+                    </p>
                   </div>
                   <input
                     autoFocus
@@ -569,6 +749,11 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                   <div className="min-w-0">
                     <p className="text-xs font-bold text-stone-400 dark:text-stone-500 uppercase tracking-widest">Location</p>
                     <p className="font-bold text-stone-900 dark:text-white truncate">{scannedLocation?.name}</p>
+                    {scannedLocation?.locationNumber && (
+                      <p className="text-[10px] text-stone-500 dark:text-stone-400 font-mono">
+                        Location #{scannedLocation.locationNumber}
+                      </p>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center gap-3 sm:gap-4 sm:text-right border-t border-stone-200/80 dark:border-stone-700/80 pt-4 sm:border-0 sm:pt-0">
@@ -626,11 +811,31 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                     <div className="flex items-center gap-2 px-1">
                       <ClipboardList className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                       <p className="text-xs font-bold text-stone-400 dark:text-stone-500 uppercase tracking-widest">
-                        Enter current quantity on hand for each item
+                        Verify quantity on hand at {scannedLocation?.name || 'this location'}
                       </p>
                     </div>
+                    {isLoadingInventoryStock ? (
+                      <div className="flex items-center justify-center gap-2 py-12 text-sm text-stone-500 dark:text-stone-400">
+                        <div className="w-5 h-5 border-2 border-stone-300 border-t-stone-600 rounded-full animate-spin" />
+                        Loading current stock...
+                      </div>
+                    ) : (
+                    <>
+                    {Object.values(systemQuantities).every((q) => q === 0) && (
+                      <div className="px-4 py-3 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300 rounded-2xl text-sm border border-amber-100 dark:border-amber-900/40">
+                        No stock recorded at this location yet. Quantities show 0 until items are checked in here.
+                        {isAdmin && ' Pick a location with stock from the list on the scan screen, or check items in first.'}
+                      </div>
+                    )}
                     <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1 custom-scrollbar">
-                      {items.map((item) => (
+                      {items.map((item) => {
+                        const systemQty = systemQuantities[item.id] ?? 0;
+                        const enteredRaw = inventoryQuantities[item.id] ?? '';
+                        const enteredQty = enteredRaw === '' ? null : parseInt(enteredRaw, 10);
+                        const hasVariance =
+                          enteredQty !== null && !Number.isNaN(enteredQty) && enteredQty !== systemQty;
+
+                        return (
                         <div
                           key={item.id}
                           className="flex items-center gap-3 p-3 sm:p-4 bg-stone-50 dark:bg-stone-800 rounded-2xl border border-stone-100 dark:border-stone-700 min-w-0"
@@ -645,6 +850,14 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-bold text-stone-900 dark:text-white truncate">{item.name}</p>
                             <p className="text-[10px] text-stone-400 dark:text-stone-500 font-mono">{item.sku}</p>
+                            <p className="text-[10px] text-stone-500 dark:text-stone-400 mt-0.5">
+                              System on hand: <span className="font-bold">{systemQty}</span>
+                              {hasVariance && (
+                                <span className="ml-2 text-amber-600 dark:text-amber-400 font-bold">
+                                  Variance: {enteredQty! - systemQty > 0 ? '+' : ''}{enteredQty! - systemQty}
+                                </span>
+                              )}
+                            </p>
                           </div>
                           <input
                             type="text"
@@ -660,15 +873,18 @@ export function CheckoutPage({ loggedInEmployee }: CheckoutPageProps) {
                             className="w-20 h-11 shrink-0 bg-white dark:bg-stone-900 rounded-xl text-center text-base font-bold text-stone-900 dark:text-white shadow-sm focus:ring-2 focus:ring-blue-200 dark:focus:ring-blue-800 border-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                           />
                         </div>
-                      ))}
+                        );
+                      })}
                       {items.length === 0 && (
                         <p className="text-center text-sm text-stone-400 dark:text-stone-500 py-8">No items in catalog.</p>
                       )}
                     </div>
+                    </>
+                    )}
                     <button
                       type="button"
                       onClick={handleInventoryCheck}
-                      disabled={!canInventorySubmit || isProcessing}
+                      disabled={!canInventorySubmit || isProcessing || isLoadingInventoryStock}
                       className="w-full bg-blue-600 dark:bg-blue-500 text-white py-4 sm:py-5 rounded-2xl sm:rounded-[24px] font-bold text-base sm:text-lg hover:bg-blue-700 dark:hover:bg-blue-400 transition-all shadow-xl shadow-blue-200/50 dark:shadow-none disabled:opacity-50 flex items-center justify-center gap-2 touch-manipulation min-h-[52px]"
                     >
                       {isProcessing ? (

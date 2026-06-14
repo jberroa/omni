@@ -10,6 +10,7 @@ import {
   mapTransactionRow,
   mapInventoryCheckRow,
   mapInventoryCheckLineRow,
+  mapInventoryLevelRow,
   stockRowId,
 } from "./mappers";
 import { sendInventoryAlertEmail } from "./mail";
@@ -189,11 +190,37 @@ export function registerInventoryRoutes(
 
   app.get("/api/locations/by-number", (req: Request, res: Response) => {
     try {
-      const n = String(req.query.locationNumber ?? "").trim();
-      if (!n) return res.status(400).json({ error: "locationNumber required" });
-      const row = db
+      const q = String(
+        req.query.locationNumber ?? req.query.q ?? ""
+      ).trim();
+      if (!q) return res.status(400).json({ error: "locationNumber required" });
+
+      let row = db
         .prepare(`SELECT * FROM locations WHERE location_number = ? LIMIT 1`)
-        .get(n) as Record<string, unknown> | undefined;
+        .get(q) as Record<string, unknown> | undefined;
+
+      if (!row) {
+        row = db
+          .prepare(`SELECT * FROM locations WHERE id = ? LIMIT 1`)
+          .get(q) as Record<string, unknown> | undefined;
+      }
+
+      if (!row) {
+        const nameMatches = db
+          .prepare(
+            `SELECT * FROM locations WHERE lower(trim(name)) = lower(trim(?))`
+          )
+          .all(q) as Record<string, unknown>[];
+        if (nameMatches.length === 1) {
+          row = nameMatches[0];
+        } else if (nameMatches.length > 1) {
+          return res.status(409).json({
+            error:
+              "Multiple locations share that name. Use the location number (e.g. #4121) shown in Locations.",
+          });
+        }
+      }
+
       if (!row) return res.status(404).json({ error: "Not found" });
       res.json(mapLocationRow(row));
     } catch (e) {
@@ -439,6 +466,14 @@ export function registerInventoryRoutes(
             `SELECT * FROM stock WHERE item_id = ? AND location_id = ? ORDER BY COALESCE(expiry_date, '')`
           )
           .all(itemId, locationId) as Record<string, unknown>[];
+      } else if (itemId) {
+        rows = db
+          .prepare(`SELECT * FROM stock WHERE item_id = ?`)
+          .all(itemId) as Record<string, unknown>[];
+      } else if (locationId) {
+        rows = db
+          .prepare(`SELECT * FROM stock WHERE location_id = ?`)
+          .all(locationId) as Record<string, unknown>[];
       } else {
         rows = db.prepare(`SELECT * FROM stock`).all() as Record<
           string,
@@ -452,25 +487,129 @@ export function registerInventoryRoutes(
     }
   });
 
+  app.get("/api/inventory-levels", (req: Request, res: Response) => {
+    try {
+      const itemId = req.query.itemId ? String(req.query.itemId) : "";
+      const locationIdsRaw = req.query.locationIds
+        ? String(req.query.locationIds)
+        : req.query.locationId
+          ? String(req.query.locationId)
+          : "";
+      const startDate = req.query.startDate ? String(req.query.startDate) : "";
+      const endDate = req.query.endDate ? String(req.query.endDate) : "";
+
+      const locationIds = locationIdsRaw
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean);
+
+      const conditions: string[] = [];
+      const params: unknown[] = [];
+
+      if (itemId) {
+        conditions.push("agg.item_id = ?");
+        params.push(itemId);
+      }
+      if (locationIds.length > 0) {
+        conditions.push(
+          `agg.location_id IN (${locationIds.map(() => "?").join(", ")})`
+        );
+        params.push(...locationIds);
+      }
+      if (startDate) {
+        conditions.push("date(lt.timestamp) >= date(?)");
+        params.push(startDate);
+      }
+      if (endDate) {
+        conditions.push("date(lt.timestamp) <= date(?)");
+        params.push(endDate);
+      }
+
+      const whereClause =
+        conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+      const sql = `
+        WITH stock_agg AS (
+          SELECT item_id, location_id, SUM(quantity) AS quantity
+          FROM stock
+          GROUP BY item_id, location_id
+        ),
+        last_tx AS (
+          SELECT item_id, location_id, type, timestamp,
+            ROW_NUMBER() OVER (
+              PARTITION BY item_id, location_id
+              ORDER BY timestamp DESC
+            ) AS rn
+          FROM transactions
+        )
+        SELECT
+          agg.item_id,
+          agg.location_id,
+          agg.quantity,
+          lt.type AS last_transaction_type,
+          lt.timestamp AS last_transaction_date,
+          i.name AS item_name,
+          l.name AS location_name
+        FROM stock_agg agg
+        JOIN items i ON i.id = agg.item_id
+        JOIN locations l ON l.id = agg.location_id
+        LEFT JOIN last_tx lt
+          ON lt.item_id = agg.item_id
+          AND lt.location_id = agg.location_id
+          AND lt.rn = 1
+        ${whereClause}
+        ORDER BY l.name COLLATE NOCASE, i.name COLLATE NOCASE
+      `;
+
+      const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
+      res.json(rows.map(mapInventoryLevelRow));
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Failed to list inventory levels" });
+    }
+  });
+
   app.get("/api/transactions", (req: Request, res: Response) => {
     try {
       const itemId = req.query.itemId ? String(req.query.itemId) : "";
+      const locationId = req.query.locationId ? String(req.query.locationId) : "";
+      const startDate = req.query.startDate ? String(req.query.startDate) : "";
+      const endDate = req.query.endDate ? String(req.query.endDate) : "";
       const limit = Math.min(
         10000,
         Math.max(1, Number(req.query.limit ?? 5000) || 5000)
       );
-      let rows: Record<string, unknown>[];
+
+      const conditions: string[] = [];
+      const params: unknown[] = [];
+
       if (itemId) {
-        rows = db
-          .prepare(
-            `SELECT * FROM transactions WHERE item_id = ? ORDER BY timestamp DESC LIMIT ?`
-          )
-          .all(itemId, limit) as Record<string, unknown>[];
-      } else {
-        rows = db
-          .prepare(`SELECT * FROM transactions ORDER BY timestamp DESC LIMIT ?`)
-          .all(limit) as Record<string, unknown>[];
+        conditions.push("item_id = ?");
+        params.push(itemId);
       }
+      if (locationId) {
+        conditions.push("location_id = ?");
+        params.push(locationId);
+      }
+      if (startDate) {
+        conditions.push("date(timestamp) >= date(?)");
+        params.push(startDate);
+      }
+      if (endDate) {
+        conditions.push("date(timestamp) <= date(?)");
+        params.push(endDate);
+      }
+
+      const whereClause =
+        conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+      params.push(limit);
+
+      const rows = db
+        .prepare(
+          `SELECT * FROM transactions ${whereClause} ORDER BY timestamp DESC LIMIT ?`
+        )
+        .all(...params) as Record<string, unknown>[];
+
       res.json(rows.map(mapTransactionRow));
     } catch (e) {
       console.error(e);
