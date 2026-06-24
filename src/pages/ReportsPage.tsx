@@ -156,6 +156,8 @@ export function ReportsPage() {
       const location = locations.find(l => l.id === tx.locationId);
       const employee = employees.find(e => e.id === tx.employeeId);
       const date = toEventDate(tx.timestamp);
+      const unitPrice = item?.price ?? 0;
+      const totalValue = tx.quantity * unitPrice;
 
       return {
         'Type': tx.type === 'IN' ? 'Restock (IN)' : 'Check Out (OUT)',
@@ -164,6 +166,8 @@ export function ReportsPage() {
         'Location': location?.name || 'Deleted Location',
         'Staff': employee?.name || 'Deleted Staff',
         'Quantity': tx.quantity,
+        'Unit Price': unitPrice,
+        'Total Value': totalValue,
         'Date': format(date, 'yyyy-MM-dd'),
         'Time': format(date, 'HH:mm:ss')
       };
